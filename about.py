@@ -1,0 +1,6 @@
+__title__ = "issue_observatory_search"
+__version__ = "0.1"
+__summary__ = "Map weblinks beloing to case or issue"
+__uri__ = "https://github.com/dimelab/issue_observatory_search"
+__author__ = "Jakob Kristensen"
+__email__ = "jakobbk@ruc.dk"
