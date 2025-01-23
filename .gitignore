@@ -172,3 +172,5 @@ cython_debug/
 
 #key files
 keys/**/*.json
+*.csv
+*.gexf
