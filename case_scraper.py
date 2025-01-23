@@ -132,7 +132,7 @@ def scrape(title,issue_dict_file,save=True,verbose=False):
 	tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span']
 	
 	# REMEBER TO CHANGE SEARCH KEYS
-	search_keys = load_issue_dict_file(main_path+"/{}".format(issue_dict_file))
+	search_keys = load_issue_dict_file(main_path+"/search_queries/{}".format(issue_dict_file))
 
 	df = load_data(main_path,title)
 	search_results = []
