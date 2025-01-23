@@ -1,0 +1,80 @@
+<?xml version='1.0' encoding='utf-8'?>
+<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2">
+  <meta lastmodifieddate="2025-01-23">
+    <creator>NetworkX 3.1</creator>
+  </meta>
+  <graph defaultedgetype="undirected" mode="static" name="">
+    <attributes mode="static" class="node">
+      <attribute id="0" title="nodetype" type="string" />
+    </attributes>
+    <nodes>
+      <node id="fm.dk" label="fm.dk">
+        <attvalues>
+          <attvalue for="0" value="actor" />
+        </attvalues>
+      </node>
+      <node id="co2" label="co2">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="aftale" label="aftale">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="skattereform" label="skattereform">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="afgift" label="afgift">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="omstilling" label="omstilling">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="krone" label="krone">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="udledning" label="udledning">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="virksomhed" label="virksomhed">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="brændsle" label="brændsle">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+      <node id="ton" label="ton">
+        <attvalues>
+          <attvalue for="0" value="token" />
+        </attvalues>
+      </node>
+    </nodes>
+    <edges>
+      <edge source="fm.dk" target="co2" id="0" />
+      <edge source="fm.dk" target="aftale" id="1" />
+      <edge source="fm.dk" target="skattereform" id="2" />
+      <edge source="fm.dk" target="afgift" id="3" />
+      <edge source="fm.dk" target="omstilling" id="4" />
+      <edge source="fm.dk" target="krone" id="5" />
+      <edge source="fm.dk" target="udledning" id="6" />
+      <edge source="fm.dk" target="virksomhed" id="7" />
+      <edge source="fm.dk" target="brændsle" id="8" />
+      <edge source="fm.dk" target="ton" id="9" />
+    </edges>
+  </graph>
+</gexf>

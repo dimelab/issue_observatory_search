@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 from urllib.parse import urlparse
 from sklearn.feature_extraction.text import TfidfVectorizer
 from urllib.parse import urlparse
+import config as conf
 
 def try_call(call_url,params={}):
 
@@ -82,19 +83,20 @@ class Google:
 
 		return data
 
-def load_data(main_path,keyword):
+def load_data(main_path,title):
 
-	file_path = main_path+"/"+keyword+".csv"
+	file_path = main_path+"/data/"+title+".csv"
 	if os.path.isfile(file_path):
 		df = pd.read_csv(file_path)
 	else:
-		df = pd.DataFrame(columns=['keyword', 'search_keywords', 'url',"scrape_date","texts"])
-
+		df = pd.DataFrame(columns=['title', 'search_keywords', 'url',"scrape_date","texts"])
 	return df
 
 def dynamic_save(main_path,keyword,df):
 
-	file_path = main_path+"/"+keyword+".csv"
+	file_path = main_path+"/data/"+keyword+".csv"
+	if not os.path.exists(main_path+"/data"):
+		os.makedirs(main_path+"/data")
 	df.to_csv(file_path,index=False)
 
 def scrape_single_url(url, search_list, tags):
@@ -102,6 +104,7 @@ def scrape_single_url(url, search_list, tags):
 	response = try_call(url)
 	if response is not None and response.status_code != 200:
 		return f"Failed to retrieve content from {url}, status code: {response.status_code}"
+	else:
 
 		# Parse the HTML content
 		soup = BeautifulSoup(response.content, 'html.parser')
@@ -110,26 +113,32 @@ def scrape_single_url(url, search_list, tags):
 		elements = soup.find_all(tags)
 		
 		# Filter elements that contain any of the search strings
-		matching_elements = [str(element.text) for element in elements if any(s in element.text for s in search_list)]
-	else:
-		matching_elements = "None"
+		matching_elements = [str(element.text) for element in elements if any(s in element.text for s in search_list) or any(s.lower() in element.text for s in search_list)]
 
 	return matching_elements
 
-def scrape(main_path,save=True,verbose=False):
+def load_issue_dict_file(filepath):
 
-	tokens = {"tokens":[{"key":"AIzaSyCgDpys0CFao3C3SyMNz6PBXs5-lxZWgf8","cx":"013924965797933482638:elqtd-rolhw"}]}
+	issue_kws = []
+	for kw in open(filepath,"r").readlines():
+		issue_kws.append(kw.strip())
+	return issue_kws
+
+def scrape(title,issue_dict_file,save=True,verbose=False):
+
+	conf_file = conf.Config()
+	main_path = conf_file.MAIN_PATH
+	tokens = conf_file.AUTH["customsearch"]
 	tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span']
 	
 	# REMEBER TO CHANGE SEARCH KEYS
-	search_keys = ["CO2 afgift","CO2-afgift","co2 afgift","co2-afgift"]
+	search_keys = load_issue_dict_file(main_path+"/{}".format(issue_dict_file))
 
-	main_search_key = "CO2 afgift"
-	df = load_data(main_path,main_search_key)
-	search_results = [doc["link"] for doc in Google(tokens).query_content(main_search_key,page_views=100)["output"]]
-	print (search_results)
-	print (len(search_results))
-	sys.exit()
+	df = load_data(main_path,title)
+	search_results = []
+	for kw in search_keys:
+		search_results.extend([doc["link"] for doc in Google(tokens).query_content(kw,page_views=10)["output"]])
+	search_results = list(set(search_results))
 	founds = {}
 	raw_data = []
 	already_found = set(list(df["url"]))
@@ -137,7 +146,7 @@ def scrape(main_path,save=True,verbose=False):
 	for scrape_url in search_results:
 		if not scrape_url in already_found:
 			founds[scrape_url]=set(scrape_single_url(scrape_url,search_keys,tags))
-			doc={	"keyword":main_search_key,
+			doc={	"title":title,
 					"search_keywords":str(search_keys),
 					"url":scrape_url,
 					"scrape_date":datetime.today(),
@@ -149,7 +158,13 @@ def scrape(main_path,save=True,verbose=False):
 				temp_df = pd.DataFrame(raw_data)
 				df = pd.concat([df,temp_df])
 				raw_data = []
-				dynamic_save(main_path,main_search_key,df)
+				dynamic_save(main_path,title,df)
+		break
+	print (f"saving {len(raw_data)} new scrapes")
+	temp_df = pd.DataFrame(raw_data)
+	df = pd.concat([df,temp_df])
+	raw_data = []
+	dynamic_save(main_path,title,df)
 
 	if verbose:
 		for k,v in founds.items():
@@ -159,7 +174,7 @@ def scrape(main_path,save=True,verbose=False):
 				print ("---------------------------------------------")
 				print ()
 
-def create_net_from_tokens(main_path,keyword,docs):
+def create_net_from_tokens(main_path,title,docs):
 
 	g = nx.Graph()
 	for dom,tokens in docs.items():
@@ -168,10 +183,12 @@ def create_net_from_tokens(main_path,keyword,docs):
 			if not g.has_node(t):
 				g.add_node(t,nodetype="token")
 			g.add_edge(dom,t)
-	file_path = main_path+"/"+keyword+".gexf"
+	file_path = main_path+"/gexfs/"+title+".gexf"
+	if not os.path.exists(main_path+"/gexfs"):
+		os.makedirs(main_path+"/gexfs")
 	nx.write_gexf(g,file_path)
 
-def get_nouns(main_path,keyword):
+def get_nouns(title):
 
 	def _get_domain(url):
 
@@ -209,7 +226,9 @@ def get_nouns(main_path,keyword):
 		df[text_col]=cts
 		return df
 
-	file_path = main_path+"/"+keyword+".csv"
+	conf_file = conf.Config()
+	main_path = conf_file.MAIN_PATH
+	file_path = main_path+"/data/"+title+".csv"
 	df = pd.read_csv(file_path)
 	df = _clean_texts(df)
 	da_nlp = spacy.load('da_core_news_md')
@@ -228,159 +247,15 @@ def get_nouns(main_path,keyword):
 	for scores,url in zip(ds_scores,list(df["url"])):
 		dom = _get_domain(url)
 		new_docs[dom].update(set([k for k,v in sorted(scores.items(), key=lambda item: item[1],reverse=True)[:10]]))
-		print (sorted(scores.items(), key=lambda item: item[1],reverse=True)[:10])
-		print ()
+		#print (sorted(scores.items(), key=lambda item: item[1],reverse=True)[:10])
+		#print ()
 
-	create_net_from_tokens(main_path,keyword,new_docs)
+	create_net_from_tokens(main_path,title,new_docs)
 
-def get_match_list(lst,match_with):
-
-	matched = []
-
-	def _get_page_username(url):
-
-		_val = ""
-		if "?php" in url:
-			return _val
-		if "/public/" in url:
-			return _val
-
-		if ".facebook.com/p/" in url:
-			temp_val = url.split(".facebook.com/p/")[-1].split("/")[0]
-		else:
-			temp_val = url.split(".facebook.com/")[-1].split("/")[0]
-
-		if "-" in temp_val:
-			for s in temp_val.split("-"):
-				if s.isnumeric():
-					temp_val = s
-		temp_val = temp_val.replace("@","")
-		_val = temp_val
-
-		return _val
-
-	def _get_yt_channel(urls,max_try=1):
-
-		for url in urls:
-			url = url["link"]
-			#print (url)
-			_val = ""
-			if "@" in url:
-				_val = url.split("@")[-1].split("/")[0]
-			elif "channel" in url:
-				_val = url.split("channel/")[-1].split("/")[0]
-			elif "user" in url:
-				_val = url.split("user/")[-1].split("/")[0]
-			if _val != "":
-				break
-		return _val
-
-	def _get_insta(urls,max_try=1):
-
-		for url in urls:
-			url = url["link"]
-			_val = ""
-			if "instagram.com/" in url:
-				_val = url.split("instagram.com/")[-1].split("/")[0]
-			if _val != "":
-				break
-		return _val
-
-	def _get_linkedin(urls,max_try=1):
-
-		for url in urls:
-			url = url["link"]
-			_val = ""
-			if "dk.linkedin.com/in/" in url:
-				_val = url.split("dk.linkedin.com/in/")[-1].split("/")[0]
-			if "dk.linkedin.com/company/" in url:
-				_val = url.split("dk.linkedin.com/company/")[-1].split("/")[0]
-			if _val != "":
-				break
-		return _val
-
-	def _get_twitter(urls,max_try=1):
-
-		for url in urls:
-			url = url["link"]
-			_val = ""
-			if "x.com/" in url:
-				_val = url.split("x.com/")[-1].split("/")[0]
-			if "twitter.com/" in url:
-				_val = url.split("twitter.com/")[-1].split("/")[0].split("?")[0]
-			if _val != "":
-				break
-		return _val
-
-	def _get_tiktok(urls,max_try=1):
-
-		for url in urls:
-			url = url["link"]
-			_val = ""
-			if "tiktok.com/" in url and "@" in url:
-				_val = url.split("@")[-1].split("/")[0]
-			if _val != "":
-				break
-		return _val
-
-	#tokens = {"tokens":[{"key":"AIzaSyCgDpys0CFao3C3SyMNz6PBXs5-lxZWgf8","cx":"013924965797933482638:elqtd-rolhw"}]}
-	tokens = {"tokens":[{"key":"AIzaSyAdfI0AaKRFS8EbPXBQJtbWln7Ixre7G98","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyChuQPz_SytL01wp3nrTsU5UR7VONVzrh8","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyBc_4YdswjsH9V96FFIwydwh3CM_ROoJVk","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyC2ALJ71_YwNGlKe-A_VIadfRZdmND-cag","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyCwoUEsTm7ADGLP6VVqNuVUPxKd66m50Kg","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyD5ZjyxMS5_B9yXRQki7CxCjOzkz1rQ7b4","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyB-oek4a76zPQdff1yyOibiJElroxoshZU","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyDNNbdpF9SAaii6v6JnA7pAFFjCihFI5As","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyBNgQfuwQL6cf-nZlmBBcvoT9mhwlzhRM0","cx":"e2cfb1a5cd5d14592"},
-						{"key":"AIzaSyDhYK9ZdJZbqLOr12zxG0tKXU4mpCRSAcU","cx":"e2cfb1a5cd5d14592"},
-						]}
-	googl = Google(tokens)
-	for n in list(lst)[:500]:
-		try:
-			data = googl.query_content(n+" "+match_with)
-			if "Facebook" in match_with:
-				f_username = _get_page_username(data["output"][0]["link"])
-			elif "Youtube" in match_with:
-				f_username = _get_yt_channel(data["output"],max_try=8)
-			elif "Instagram" in match_with:
-				f_username = _get_insta(data["output"],max_try=8)
-			elif "LinkedIn" in match_with:
-				f_username = _get_linkedin(data["output"],max_try=1)
-			elif "Twitter" in match_with:
-				f_username = _get_twitter(data["output"],max_try=1)
-			elif "TikTok" in match_with:
-				f_username = _get_tiktok(data["output"],max_try=4)
-			print (n + " " + f_username + "    " + data["output"][0]["link"])
-
-		except Exception as e:
-			print (e)
-			f_username = ""
-		matched.append(f_username)
-
-	return matched
-
-
-main_path = "/Users/jakobbk/Documents/postdoc/Digital Media Lab/Sagsobservatoriet"
-keyword = "CO2 afgift"
-#fdf = set(list(pd.read_excel(main_path+"/folketingsmedlemmer.xlsx")["name"]))
-df = pd.read_excel(main_path+"/nyhedsmedier.xlsx",nrows=500)
-fdf = list(df["name"])
-#match_with = "Facebook page"
-#match_with = "Youtube channel"
-#match_with = "Instagram"
-#match_with = "LinkedIn"
-#match_with = "Twitter"
-#match_with = "TikTok"
-
-#scrape(main_path)
-#get_nouns(main_path,keyword)
-for match_with in ["Facebook page","Youtube channel","Instagram","LinkedIn","Twitter","TikTok"]:
-	match_list = get_match_list(fdf,match_with)
-	df["Facebook page"]=match_list
-	df.to_csv(main_path+f"/nyhedsmedier_w_{match_with}.csv")
-
-
-
-
+if __name__ == "__main__":
+	args = sys.argv
+	title = args[1]
+	issue_file = args[2]
+	scrape(title,issue_file,save=True,verbose=False)
+	get_nouns(title)
 
