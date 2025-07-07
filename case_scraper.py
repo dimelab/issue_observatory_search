@@ -143,7 +143,7 @@ def scrape(title,issue_dict_file,save=True,verbose=False):
 	raw_data = []
 	already_found = set(list(df["url"]))
 	new_found_count = 0
-	for scrape_url in search_results:
+	for scrape_url in search_results[:3]:
 		if not scrape_url in already_found:
 			founds[scrape_url]=set(scrape_single_url(scrape_url,search_keys,tags))
 			doc={	"title":title,
@@ -159,7 +159,6 @@ def scrape(title,issue_dict_file,save=True,verbose=False):
 				df = pd.concat([df,temp_df])
 				raw_data = []
 				dynamic_save(main_path,title,df)
-		break
 	print (f"saving {len(raw_data)} new scrapes")
 	temp_df = pd.DataFrame(raw_data)
 	df = pd.concat([df,temp_df])
