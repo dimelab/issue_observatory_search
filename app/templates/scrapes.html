@@ -74,11 +74,7 @@
                     <div class="mb-3">
                         <label for="search-terms-select" class="form-label">Search Terms</label>
                         <select class="form-select" id="search-terms-select" name="search_terms_id" required>
-                            <option value="">Select search terms...</option>
-                            <option hx-get="{{ url_for('api.get_search_terms') }}" 
-                                    hx-trigger="load" 
-                                    hx-target="#search-terms-select" 
-                                    hx-swap="innerHTML">Loading...</option>
+                            <option value="">Loading search terms...</option>
                         </select>
                     </div>
                     
@@ -122,4 +118,15 @@
 </div>
 
 <div id="scrape-response"></div>
+
+<script>
+// Load search terms when modal opens
+document.getElementById('newScrapeModal').addEventListener('shown.bs.modal', function() {
+    // Trigger HTMX request to load search terms
+    htmx.ajax('GET', '{{ url_for("api.get_search_terms_options") }}', {
+        target: '#search-terms-select',
+        swap: 'innerHTML'
+    });
+});
+</script>
 {% endblock %}

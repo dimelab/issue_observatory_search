@@ -1,4 +1,4 @@
-from flask import request, jsonify, render_template
+from flask import request, jsonify, render_template, redirect, url_for, flash
 from flask_login import login_required, current_user
 from app.api import bp
 from app.models import Scrape, ScrapedPage, SearchTerms
@@ -65,7 +65,8 @@ def create_scrape():
     if request.is_json:
         return jsonify({'success': True, 'scrape_id': scrape.id})
     else:
-        return render_template('scrape_form.html', message='Scrape started successfully')
+        flash('Scrape started successfully!', 'success')
+        return redirect(url_for('api.get_scrapes'))
 
 @bp.route('/scrapes/<int:scrape_id>', methods=['GET'])
 @login_required
@@ -104,6 +105,15 @@ def get_search_terms():
     else:
         return render_template('search_terms.html', terms=terms)
 
+@bp.route('/search-terms/options', methods=['GET'])
+@login_required
+def get_search_terms_options():
+    terms = SearchTerms.query.filter_by(user_id=current_user.id).all()
+    options_html = '<option value="">Select search terms...</option>'
+    for term in terms:
+        options_html += f'<option value="{term.id}">{term.name} ({len(term.get_terms_list())} terms)</option>'
+    return options_html
+
 @bp.route('/search-terms', methods=['POST'])
 @login_required
 def create_search_terms():
@@ -124,7 +134,8 @@ def create_search_terms():
     if request.is_json:
         return jsonify({'success': True, 'id': search_terms.id})
     else:
-        return render_template('search_terms_form.html', message='Search terms saved successfully')
+        flash('Search terms saved successfully!', 'success')
+        return redirect(url_for('api.get_search_terms'))
 
 def _perform_scrape(scrape_id, search_terms, config_data):
     """Background function to perform scraping"""

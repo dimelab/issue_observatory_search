@@ -1,4 +1,4 @@
-from flask import request, jsonify, render_template, send_file
+from flask import request, jsonify, render_template, send_file, flash, redirect, url_for
 from flask_login import login_required, current_user
 from app.api import bp
 from app.models import Scrape, ScrapedPage
@@ -53,7 +53,8 @@ def create_network():
         if request.is_json:
             return jsonify({'success': False, 'message': 'No valid scrapes found'}), 400
         else:
-            return render_template('network_form.html', error='No valid scrapes found')
+            flash('No valid scrapes found', 'error')
+            return redirect(url_for('api.get_networks'))
     
     # Create network analyzer
     language = data.get('language', 'da_core_news_md')
@@ -75,7 +76,8 @@ def create_network():
         if request.is_json:
             return jsonify({'success': False, 'message': 'Failed to create network'}), 500
         else:
-            return render_template('network_form.html', error='Failed to create network')
+            flash('Failed to create network', 'error')
+            return redirect(url_for('api.get_networks'))
     
     # Get network statistics
     stats = analyzer.get_network_stats(network)
@@ -105,7 +107,8 @@ def create_network():
         if request.is_json:
             return jsonify({'success': False, 'message': 'Failed to export network'}), 500
         else:
-            return render_template('network_form.html', error='Failed to export network')
+            flash('Failed to export network', 'error')
+            return redirect(url_for('api.get_networks'))
 
 @bp.route('/networks/download/<filename>')
 @login_required
