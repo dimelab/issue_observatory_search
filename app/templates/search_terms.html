@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Search Terms - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Search Terms</h1>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newTermsModal">
+                Add New Search Terms
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Terms Count</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for term in terms %}
+                            <tr>
+                                <td>{{ term.name }}</td>
+                                <td>{{ term.get_terms_list()|length }}</td>
+                                <td>{{ term.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" 
+                                            onclick="viewTerms({{ term.id }}, '{{ term.name }}', '{{ term.terms }}')">
+                                        View
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add New Terms Modal -->
+<div class="modal fade" id="newTermsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Search Terms</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form hx-post="{{ url_for('api.create_search_terms') }}" 
+                      hx-target="#terms-response"
+                      hx-on::after-request="if(event.detail.xhr.status === 200) document.getElementById('newTermsModal').querySelector('.btn-close').click()">
+                    <div class="mb-3">
+                        <label for="terms-name" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="terms-name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="terms-terms" class="form-label">Terms (comma-separated)</label>
+                        <textarea class="form-control" id="terms-terms" name="terms" rows="5" 
+                                  placeholder="term1, term2, term3..." required></textarea>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Save Search Terms</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Terms Modal -->
+<div class="modal fade" id="viewTermsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="viewTermsTitle">View Search Terms</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="viewTermsContent"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="terms-response"></div>
+
+<script>
+function viewTerms(id, name, terms) {
+    document.getElementById('viewTermsTitle').textContent = 'Search Terms: ' + name;
+    const termsList = terms.split(',').map(t => t.trim()).filter(t => t);
+    const html = '<ul class="list-unstyled">' + 
+                 termsList.map(term => '<li><span class="badge bg-secondary me-1">' + term + '</span></li>').join('') + 
+                 '</ul>';
+    document.getElementById('viewTermsContent').innerHTML = html;
+    new bootstrap.Modal(document.getElementById('viewTermsModal')).show();
+}
+</script>
+{% endblock %}
