@@ -134,11 +134,11 @@ def _perform_scrape(scrape_id, search_terms, config_data):
         db.session.commit()
         
         # Setup search engine
-        conf = Config()
+        auth_data = Config.get_auth()
         
         if config_data.get('search_engine') == 'google_custom':
-            if 'customsearch' in conf.AUTH:
-                tokens = conf.AUTH['customsearch']['tokens'][0]
+            if 'customsearch' in auth_data:
+                tokens = auth_data['customsearch']['tokens'][0]
                 search_engine = SearchEngineFactory.create_search_engine(
                     'google_custom',
                     api_key=tokens['key'],
@@ -147,10 +147,10 @@ def _perform_scrape(scrape_id, search_terms, config_data):
             else:
                 raise ValueError("Google Custom Search not configured")
         elif config_data.get('search_engine') == 'serp_api':
-            if conf.SERP_API_KEY:
+            if Config.SERP_API_KEY:
                 search_engine = SearchEngineFactory.create_search_engine(
                     'serp_api',
-                    api_key=conf.SERP_API_KEY
+                    api_key=Config.SERP_API_KEY
                 )
             else:
                 raise ValueError("SERP API not configured")

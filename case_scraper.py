@@ -126,9 +126,8 @@ def load_issue_dict_file(filepath):
 
 def scrape(title,issue_dict_file,save=True,verbose=False):
 
-	conf_file = conf.Config()
-	main_path = conf_file.MAIN_PATH
-	tokens = conf_file.AUTH["customsearch"]
+	main_path = conf.Config.MAIN_PATH
+	tokens = conf.Config.get_auth()["customsearch"]
 	tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span']
 	
 	# REMEBER TO CHANGE SEARCH KEYS
@@ -225,8 +224,7 @@ def get_nouns(title):
 		df[text_col]=cts
 		return df
 
-	conf_file = conf.Config()
-	main_path = conf_file.MAIN_PATH
+	main_path = conf.Config.MAIN_PATH
 	file_path = main_path+"/data/"+title+".csv"
 	df = pd.read_csv(file_path)
 	df = _clean_texts(df)

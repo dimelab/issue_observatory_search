@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import requests
 import json
-from serpapi import GoogleSearch
+import serpapi
 
 class SearchEngineBase(ABC):
     @abstractmethod
@@ -57,14 +57,12 @@ class SerpAPISearch(SearchEngineBase):
         results = []
         
         try:
-            params = {
+            client = serpapi.Client(api_key=self.api_key)
+            search_results = client.search({
                 "q": query,
-                "api_key": self.api_key,
-                "num": min(100, max_results)
-            }
-            
-            search = GoogleSearch(params)
-            search_results = search.get_dict()
+                "num": min(100, max_results),
+                "engine": "google"
+            })
             
             if 'organic_results' in search_results:
                 for result in search_results['organic_results'][:max_results]:
