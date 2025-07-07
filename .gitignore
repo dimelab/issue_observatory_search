@@ -174,3 +174,4 @@ cython_debug/
 keys/**/*.json
 *.csv
 *.gexf
+*.txt
