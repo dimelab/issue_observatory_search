@@ -99,35 +99,38 @@ def upgrade() -> None:
     # Website Content - Full-Text Search & Compound Indexes
     # ========================================================================
 
-    # Full-text search on text content (for fast content search)
+    # Full-text search on extracted_text content (for fast content search)
     op.execute("""
         CREATE INDEX idx_website_content_text_fts
         ON website_content
-        USING gin(to_tsvector('english', COALESCE(text_content, '')))
+        USING gin(to_tsvector('english', COALESCE(extracted_text, '')))
     """)
 
-    # Full-text search on title
-    op.execute("""
-        CREATE INDEX idx_website_content_title_fts
-        ON website_content
-        USING gin(to_tsvector('english', COALESCE(title, '')))
-    """)
+    # Note: title, domain, and analyzed columns don't exist in the current schema
+    # These indexes are commented out until those columns are added in a future migration
 
-    # Content by domain and scraped time (for domain analysis)
-    op.create_index(
-        'idx_website_content_domain_scraped',
-        'website_content',
-        ['domain', sa.text('scraped_at DESC')],
-        postgresql_using='btree',
-    )
+    # # Full-text search on title
+    # op.execute("""
+    #     CREATE INDEX idx_website_content_title_fts
+    #     ON website_content
+    #     USING gin(to_tsvector('english', COALESCE(title, '')))
+    # """)
 
-    # Analyzed content (for finding content to analyze)
-    op.create_index(
-        'idx_website_content_analyzed',
-        'website_content',
-        ['analyzed', sa.text('scraped_at DESC')],
-        postgresql_using='btree',
-    )
+    # # Content by domain and scraped time (for domain analysis)
+    # op.create_index(
+    #     'idx_website_content_domain_scraped',
+    #     'website_content',
+    #     ['domain', sa.text('scraped_at DESC')],
+    #     postgresql_using='btree',
+    # )
+
+    # # Analyzed content (for finding content to analyze)
+    # op.create_index(
+    #     'idx_website_content_analyzed',
+    #     'website_content',
+    #     ['analyzed', sa.text('scraped_at DESC')],
+    #     postgresql_using='btree',
+    # )
 
     # ========================================================================
     # Extracted Nouns - Covering Indexes for Analysis
