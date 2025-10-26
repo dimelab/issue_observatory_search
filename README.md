@@ -26,6 +26,8 @@ A comprehensive web application for digital methods research: conduct systematic
 
 ## Quick Start
 
+📖 **[Complete Installation Guide](INSTALLATION.md)** - Detailed step-by-step instructions with troubleshooting
+
 ### Option 1: Docker (Recommended)
 
 ```bash
@@ -41,14 +43,15 @@ open http://localhost:8000
 ### Option 2: Local Development
 
 ```bash
-# 1. Install dependencies
+# 1. Install Python dependencies
 pip install -e ".[dev]"
 
-# 2. Install NLP models
-python scripts/install_nlp_models.py
-
-# 3. Install browser for scraping
+# 2. Install Playwright browsers (for web scraping)
+# This downloads Chromium browser (~300MB)
 playwright install chromium
+
+# 3. Install NLP models (for content analysis)
+python scripts/install_nlp_models.py
 
 # 4. Configure environment
 cp .env.example .env
@@ -67,6 +70,8 @@ celery -A backend.celery_app worker -Q analysis --loglevel=info &
 # 8. Start application
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Note**: Step 1 installs Playwright Python package. Step 2 downloads the actual Chromium browser (~300MB). Both are required for web scraping to work.
 
 Access at: **http://localhost:8000**
 API docs: **http://localhost:8000/docs**
@@ -292,6 +297,84 @@ mypy backend              # Type checking
 alembic revision --autogenerate -m "description"
 alembic upgrade head
 alembic downgrade -1
+```
+
+---
+
+## Troubleshooting
+
+### Playwright Browser Installation
+
+If `playwright install chromium` fails:
+
+**Issue**: "playwright: command not found"
+```bash
+# Solution: Install Playwright Python package first
+pip install playwright
+playwright install chromium
+```
+
+**Issue**: "Permission denied" on Linux
+```bash
+# Solution: Install system dependencies first
+sudo playwright install-deps chromium
+playwright install chromium
+```
+
+**Issue**: Large download size (~300MB)
+```bash
+# This is expected - Chromium browser is large
+# Optional: Install only what you need
+playwright install chromium --with-deps  # Includes dependencies
+```
+
+**Issue**: "Executable doesn't exist" when running scraper
+```bash
+# Solution: Reinstall browsers
+playwright install --force chromium
+```
+
+### Dependency Installation Issues
+
+**Issue**: "Cannot install redis==4.6.0 because celery requires redis<5.0.0"
+```bash
+# This is expected and correct
+# redis 4.6.0 is compatible with celery[redis]==5.3.4
+pip install -e .[dev]  # Should work
+```
+
+**Issue**: Pip backtracking for a long time
+```bash
+# Solution: Use constraints file
+pip install -e .[dev] --use-deprecated=legacy-resolver
+# OR upgrade pip
+pip install --upgrade pip setuptools wheel
+```
+
+### NLP Model Installation
+
+**Issue**: spaCy models not found
+```bash
+# Solution: Download models manually
+python -m spacy download en_core_web_sm
+python -m spacy download da_core_news_sm
+```
+
+### Database Connection Issues
+
+**Issue**: "Connection refused" to PostgreSQL
+```bash
+# Solution: Start PostgreSQL
+docker-compose up -d postgres
+
+# Verify it's running
+docker ps | grep postgres
+```
+
+**Issue**: "Database does not exist"
+```bash
+# Solution: Run migrations
+alembic upgrade head
 ```
 
 ---
