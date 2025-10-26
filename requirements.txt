@@ -34,10 +34,10 @@ serpapi==0.1.5
 
 # NLP & Text Processing
 spacy==3.7.2
-nltk==3.8.1
-sentence-transformers==2.2.2
-torch==2.1.2  # Required for sentence-transformers
-pandas==2.1.4
+# nltk==3.8.1  # NOT USED - all NLP done with spaCy
+# sentence-transformers==2.2.2  # NOT USED - planned for Phase 5 (LLM features) but not implemented
+# torch==2.1.2  # NOT USED - only needed for sentence-transformers (800MB+, disabled to save space)
+pandas==2.1.4  # Used in bulk_search.py for CSV import
 numpy==1.26.3
 scikit-learn==1.4.0
 

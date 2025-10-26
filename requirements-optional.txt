@@ -1,5 +1,22 @@
-# Optional dependencies that require special installation
+# Optional dependencies that require special installation or are for future features
 # These are NOT installed automatically with pip install -r requirements.txt
+
+# ===========================
+# PyTorch & Sentence Transformers - For LLM Features (FUTURE)
+# ===========================
+# NOT NEEDED for current application functionality
+# Only needed if implementing Phase 5: LLM Concept Extraction (not yet implemented)
+#
+# WARNING: PyTorch is very large (~2GB download, 800MB+ installed)
+#
+# Install only if you plan to add LLM-based concept extraction:
+# torch==2.1.2
+# sentence-transformers==2.2.2
+#
+# Or use GPU-accelerated version (NVIDIA GPU required):
+# Install from: https://pytorch.org/get-started/locally/
+# torch==2.1.2+cu118  # CUDA 11.8
+# torch==2.1.2+cu121  # CUDA 12.1
 
 # ===========================
 # graph-tool - Advanced Graph Algorithms
