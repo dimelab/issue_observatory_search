@@ -43,6 +43,15 @@ open http://localhost:8000
 ### Option 2: Local Development
 
 ```bash
+# 0. Create and activate virtual environment (REQUIRED)
+python3 -m venv .venv
+source .venv/bin/activate  # On macOS/Linux
+# On Windows: .venv\Scripts\activate
+
+# Verify activation - prompt should show (.venv) prefix
+# Run: which python
+# Should output: /path/to/issue_observatory_search/.venv/bin/python
+
 # 1. Install Python dependencies
 pip install -e ".[dev]"
 
@@ -71,6 +80,8 @@ celery -A backend.celery_app worker -Q analysis --loglevel=info &
 # 8. Start application
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Important**: Always activate the virtual environment before running any commands! If you see errors like "ModuleNotFoundError", you likely forgot to activate the venv.
 
 **Note**: Step 1 installs Playwright Python package. Step 2 downloads the actual Chromium browser (~300MB). Both are required for web scraping to work.
 
