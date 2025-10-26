@@ -49,7 +49,7 @@ graph-tool==2.58  # Advanced graph algorithms (optional)
 # Data Validation
 pydantic==2.5.3
 pydantic-settings==2.1.0
-email-validator==2.1.0
+email-validator==2.3.0
 
 # Utilities
 python-dateutil==2.8.2
