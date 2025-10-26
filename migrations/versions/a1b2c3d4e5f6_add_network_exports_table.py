@@ -36,7 +36,7 @@ def upgrade() -> None:
         sa.Column('backboning_alpha', sa.Float(), nullable=True),
         sa.Column('original_edge_count', sa.Integer(), nullable=True),
         sa.Column('backboning_statistics', postgresql.JSON(astext_type=sa.Text()), nullable=True),
-        sa.Column('metadata', postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column('network_metadata', postgresql.JSON(astext_type=sa.Text()), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
