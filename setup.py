@@ -45,9 +45,9 @@ dev_requires = [
     "isort>=5.13.0,<6.0.0",
     "mypy>=1.7.1,<2.0.0",
     "flake8>=7.0.0,<8.0.0",
-    "bandit>=1.7.6",
-    "safety>=3.0.0",
-    "pre-commit>=3.6.0",
+    "bandit>=1.7.6,<2.0.0",
+    "safety>=3.2.0,<4.0.0",  # Requires >=3.2.0 for Pydantic v2 support
+    "pre-commit>=3.6.0,<4.0.0",
 ]
 
 setup(

@@ -102,6 +102,6 @@ ujson==5.9.0  # Ultra-fast JSON (alternative to orjson)
 
 # Phase 10: Production Security & Testing
 bandit==1.7.6  # Security linting
-safety==3.0.1  # Dependency vulnerability scanning
+safety==3.2.8  # Dependency vulnerability scanning (supports Pydantic v2)
 pytest-xdist==3.5.0  # Parallel test execution
 freezegun==1.4.0  # Time mocking for tests
