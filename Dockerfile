@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for Issue Observatory Search
 
 # Stage 1: Base image with Python
-FROM python:3.11-slim as base
+FROM python:3.14-slim as base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

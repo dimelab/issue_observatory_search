@@ -4,7 +4,7 @@
 # ============================================================================
 # Stage 1: Builder - Install dependencies and build application
 # ============================================================================
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -41,7 +41,7 @@ COPY . .
 # ============================================================================
 # Stage 2: Runtime - Create minimal production image
 # ============================================================================
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
