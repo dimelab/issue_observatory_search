@@ -1,7 +1,7 @@
 """Phase 9: Add performance indexes for optimized queries.
 
 Revision ID: phase9_performance_indexes
-Revises: phase7_advanced_search_features
+Revises: b2c3d4e5f6a7
 Create Date: 2025-10-25 20:00:00.000000
 """
 from typing import Sequence, Union
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # Revision identifiers
 revision: str = 'phase9_performance_indexes'
-down_revision: Union[str, None] = 'phase7_advanced_search_features'
+down_revision: Union[str, None] = 'b2c3d4e5f6a7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

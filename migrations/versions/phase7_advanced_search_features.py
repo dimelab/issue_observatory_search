@@ -1,7 +1,7 @@
 """Phase 7: Advanced search features.
 
-Revision ID: a1b2c3d4e5f6
-Revises: e7f8a9b2c3d4
+Revision ID: b2c3d4e5f6a7
+Revises: a1b2c3d4e5f6
 Create Date: 2025-10-24 12:00:00.000000
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'a1b2c3d4e5f6'
-down_revision = 'e7f8a9b2c3d4'  # Points to Phase 3 scraping tables
+revision = 'b2c3d4e5f6a7'
+down_revision = 'a1b2c3d4e5f6'  # Points to network exports table
 branch_labels = None
 depends_on = None
 
