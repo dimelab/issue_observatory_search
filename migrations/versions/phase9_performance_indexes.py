@@ -192,12 +192,13 @@ def upgrade() -> None:
     # Network Exports - Compound Indexes
     # ========================================================================
 
-    # Recent networks by user (partial index for 30 days)
-    op.execute("""
-        CREATE INDEX idx_network_exports_user_recent
-        ON network_exports (user_id, created_at DESC)
-        WHERE created_at > NOW() - INTERVAL '30 days'
-    """)
+    # Recent networks by user (simple index without time filter - NOW() not allowed in index predicates)
+    op.create_index(
+        'idx_network_exports_user_created',
+        'network_exports',
+        ['user_id', sa.text('created_at DESC')],
+        postgresql_using='btree',
+    )
 
     # NOTE: session_id column doesn't exist in network_exports - using session_ids array instead
     # # Networks by session
