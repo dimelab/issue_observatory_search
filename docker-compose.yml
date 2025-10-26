@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-issue_observatory}
     ports:
-      - "5432:5432"
+      - "5433:5432"  # External:Internal - Use 5433 to avoid conflict with system PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
