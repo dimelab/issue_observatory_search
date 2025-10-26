@@ -47,9 +47,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-issue_observatory}
       REDIS_URL: redis://redis:6379
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-min-32-chars}
-      GOOGLE_CUSTOM_SEARCH_API_KEY: ${GOOGLE_API_KEY}
-      GOOGLE_CUSTOM_SEARCH_ENGINE_ID: ${GOOGLE_CSE_ID}
-      SERP_API_KEY: ${SERP_API_KEY}
+      GOOGLE_CUSTOM_SEARCH_API_KEY: ${GOOGLE_CUSTOM_SEARCH_API_KEY}
+      GOOGLE_CUSTOM_SEARCH_ENGINE_ID: ${GOOGLE_CUSTOM_SEARCH_ENGINE_ID}
+      SERPER_API_KEY: ${SERPER_API_KEY}
       DEBUG: ${DEBUG:-true}
       ENVIRONMENT: development
       NETWORK_EXPORT_DIR: /app/data/networks
@@ -78,9 +78,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-issue_observatory}
       REDIS_URL: redis://redis:6379
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-      GOOGLE_CSE_ID: ${GOOGLE_CSE_ID}
-      SERP_API_KEY: ${SERP_API_KEY}
+      GOOGLE_CUSTOM_SEARCH_API_KEY: ${GOOGLE_CUSTOM_SEARCH_API_KEY}
+      GOOGLE_CUSTOM_SEARCH_ENGINE_ID: ${GOOGLE_CUSTOM_SEARCH_ENGINE_ID}
+      SERPER_API_KEY: ${SERPER_API_KEY}
       NETWORK_EXPORT_DIR: /app/data/networks
     volumes:
       - ./backend:/app/backend

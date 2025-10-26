@@ -37,10 +37,10 @@ python scripts/install_nlp_models.py
 cp .env.example .env
 # Edit .env with your API keys
 
-# 7. Start infrastructure
+# 7. Start infrastructure (MUST be done before migrations!)
 docker-compose up -d postgres redis
 
-# 8. Run migrations
+# 8. Run migrations (requires database to be running)
 python -m alembic upgrade head
 
 # 9. Start application

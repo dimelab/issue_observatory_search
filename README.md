@@ -67,11 +67,11 @@ cp .env.example .env
 # Edit .env with your API keys (database defaults work with Docker!)
 # See docs/DATABASE_SETUP.md for database configuration details
 
-# 5. Run database migrations
-python -m alembic upgrade head
-
-# 6. Start services
+# 5. Start services (MUST be done before migrations!)
 docker-compose up -d postgres redis  # Or start manually
+
+# 6. Run database migrations (requires services to be running)
+python -m alembic upgrade head
 
 # 7. Start Celery workers
 celery -A backend.celery_app worker -Q scraping --loglevel=info &
