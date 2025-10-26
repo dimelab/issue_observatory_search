@@ -1,4 +1,5 @@
 """Authentication schemas."""
+from __future__ import annotations
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
@@ -9,7 +10,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-    user: "UserResponse"
+    user: UserResponse
 
 
 class TokenData(BaseModel):
