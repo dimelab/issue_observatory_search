@@ -100,32 +100,12 @@ def upgrade() -> None:
     op.create_index(op.f('ix_website_content_user_id'), 'website_content', ['user_id'], unique=False)
     op.create_index(op.f('ix_website_content_website_id'), 'website_content', ['website_id'], unique=False)
 
-    # Create network_exports table
-    op.create_table(
-        'network_exports',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('user_id', sa.Integer(), nullable=False),
-        sa.Column('name', sa.String(length=255), nullable=False),
-        sa.Column('type', sa.String(length=50), nullable=False),
-        sa.Column('config', sa.JSON(), nullable=False),
-        sa.Column('node_count', sa.Integer(), nullable=False),
-        sa.Column('edge_count', sa.Integer(), nullable=False),
-        sa.Column('file_path', sa.Text(), nullable=False),
-        sa.Column('file_size', sa.Integer(), nullable=False),
-        sa.Column('metadata', sa.JSON(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_network_exports_created_at'), 'network_exports', ['created_at'], unique=False)
-    op.create_index(op.f('ix_network_exports_id'), 'network_exports', ['id'], unique=False)
-    op.create_index(op.f('ix_network_exports_type'), 'network_exports', ['type'], unique=False)
-    op.create_index(op.f('ix_network_exports_user_id'), 'network_exports', ['user_id'], unique=False)
+    # Note: network_exports table is created in migration a1b2c3d4e5f6
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_table('network_exports')
+    # Note: network_exports dropped in migration a1b2c3d4e5f6
     op.drop_table('website_content')
     op.drop_table('search_sessions')
     op.drop_table('websites')
