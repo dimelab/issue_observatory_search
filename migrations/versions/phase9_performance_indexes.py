@@ -134,57 +134,59 @@ def upgrade() -> None:
 
     # ========================================================================
     # Extracted Nouns - Covering Indexes for Analysis
+    # NOTE: extracted_nouns table doesn't exist in current schema
     # ========================================================================
 
-    # Nouns by content ordered by TF-IDF (for top nouns query)
-    op.create_index(
-        'idx_extracted_nouns_content_tfidf',
-        'extracted_nouns',
-        ['content_id', sa.text('tfidf_score DESC')],
-        postgresql_using='btree',
-    )
+    # # Nouns by content ordered by TF-IDF (for top nouns query)
+    # op.create_index(
+    #     'idx_extracted_nouns_content_tfidf',
+    #     'extracted_nouns',
+    #     ['content_id', sa.text('tfidf_score DESC')],
+    #     postgresql_using='btree',
+    # )
 
-    # Nouns by session for session-level analysis
-    op.create_index(
-        'idx_extracted_nouns_session_tfidf',
-        'extracted_nouns',
-        ['session_id', sa.text('tfidf_score DESC')],
-        postgresql_using='btree',
-    )
+    # # Nouns by session for session-level analysis
+    # op.create_index(
+    #     'idx_extracted_nouns_session_tfidf',
+    #     'extracted_nouns',
+    #     ['session_id', sa.text('tfidf_score DESC')],
+    #     postgresql_using='btree',
+    # )
 
-    # High-scoring nouns (partial index for top terms)
-    op.execute("""
-        CREATE INDEX idx_extracted_nouns_high_tfidf
-        ON extracted_nouns (session_id, tfidf_score DESC)
-        WHERE tfidf_score > 0.1
-    """)
+    # # High-scoring nouns (partial index for top terms)
+    # op.execute("""
+    #     CREATE INDEX idx_extracted_nouns_high_tfidf
+    #     ON extracted_nouns (session_id, tfidf_score DESC)
+    #     WHERE tfidf_score > 0.1
+    # """)
 
     # ========================================================================
     # Entities - Compound Indexes
+    # NOTE: entities table doesn't exist in current schema
     # ========================================================================
 
-    # Entities by content and type
-    op.create_index(
-        'idx_entities_content_type',
-        'entities',
-        ['content_id', 'entity_type'],
-        postgresql_using='btree',
-    )
+    # # Entities by content and type
+    # op.create_index(
+    #     'idx_entities_content_type',
+    #     'entities',
+    #     ['content_id', 'entity_type'],
+    #     postgresql_using='btree',
+    # )
 
-    # Entities by session for session-level entity analysis
-    op.create_index(
-        'idx_entities_session_type',
-        'entities',
-        ['session_id', 'entity_type'],
-        postgresql_using='btree',
-    )
+    # # Entities by session for session-level entity analysis
+    # op.create_index(
+    #     'idx_entities_session_type',
+    #     'entities',
+    #     ['session_id', 'entity_type'],
+    #     postgresql_using='btree',
+    # )
 
-    # Full-text search on entity text
-    op.execute("""
-        CREATE INDEX idx_entities_text_fts
-        ON entities
-        USING gin(to_tsvector('english', entity_text))
-    """)
+    # # Full-text search on entity text
+    # op.execute("""
+    #     CREATE INDEX idx_entities_text_fts
+    #     ON entities
+    #     USING gin(to_tsvector('english', entity_text))
+    # """)
 
     # ========================================================================
     # Network Exports - Compound Indexes
@@ -197,19 +199,20 @@ def upgrade() -> None:
         WHERE created_at > NOW() - INTERVAL '30 days'
     """)
 
-    # Networks by session
-    op.create_index(
-        'idx_network_exports_session_created',
-        'network_exports',
-        ['session_id', sa.text('created_at DESC')],
-        postgresql_using='btree',
-    )
+    # NOTE: session_id column doesn't exist in network_exports - using session_ids array instead
+    # # Networks by session
+    # op.create_index(
+    #     'idx_network_exports_session_created',
+    #     'network_exports',
+    #     ['session_id', sa.text('created_at DESC')],
+    #     postgresql_using='btree',
+    # )
 
-    # Networks by type
+    # Networks by type (using 'type' column, not 'network_type')
     op.create_index(
         'idx_network_exports_type_created',
         'network_exports',
-        ['network_type', sa.text('created_at DESC')],
+        ['type', sa.text('created_at DESC')],
         postgresql_using='btree',
     )
 
