@@ -69,6 +69,7 @@ httpx==0.26.0  # For testing async HTTP
 
 # Code Quality
 black==23.12.1
+ruff==0.8.4  # Fast linter and formatter
 isort==5.13.2
 flake8==7.0.0
 mypy==1.8.0

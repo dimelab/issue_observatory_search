@@ -1,45 +1,47 @@
 """Setup configuration for Issue Observatory Search."""
 from setuptools import setup, find_packages
+from pathlib import Path
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-# Core dependencies
-install_requires = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "sqlalchemy[asyncio]>=2.0.23",
-    "psycopg[binary]>=3.1.0",
-    "alembic>=1.12.1",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
-    "python-multipart>=0.0.6",
-    "redis>=5.0.1",
-    "celery>=5.3.4",
-    "httpx>=0.25.2",
-    "playwright>=1.40.0",
-    "beautifulsoup4>=4.12.0",
-    "lxml>=4.9.0",
-    "langdetect>=1.0.9",
-    # NLP dependencies
-    "spacy>=3.7.0",
-    "scikit-learn>=1.3.0",
-    "numpy>=1.24.0",
-    # Network analysis dependencies
-    "networkx>=3.0",
-    "python-louvain>=0.16",  # Community detection
-]
+# Read dependencies from requirements.txt
+def read_requirements(filename):
+    """Read requirements from a file, ignoring comments and blank lines."""
+    req_path = Path(__file__).parent / filename
+    if not req_path.exists():
+        return []
 
-# Development dependencies
+    requirements = []
+    with open(req_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            # Skip comments, blank lines, and development/testing tools
+            if line and not line.startswith('#'):
+                # Remove inline comments
+                if '#' in line:
+                    line = line.split('#')[0].strip()
+                requirements.append(line)
+    return requirements
+
+# Core dependencies (from requirements.txt)
+install_requires = read_requirements('requirements.txt')
+
+# Development dependencies (from requirements-dev.txt if it exists, or hardcoded)
 dev_requires = [
-    "pytest>=7.4.3",
-    "pytest-asyncio>=0.21.1",
-    "pytest-cov>=4.1.0",
-    "black>=23.11.0",
-    "ruff>=0.1.6",
-    "mypy>=1.7.1",
+    "pytest>=7.4.3,<8.0.0",
+    "pytest-asyncio>=0.21.1,<1.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-mock>=3.12.0",
+    "pytest-xdist>=3.5.0",
+    "black>=23.11.0,<25.0.0",
+    "ruff>=0.1.6,<1.0.0",
+    "isort>=5.13.0,<6.0.0",
+    "mypy>=1.7.1,<2.0.0",
+    "flake8>=7.0.0,<8.0.0",
+    "bandit>=1.7.6",
+    "safety>=3.0.0",
+    "pre-commit>=3.6.0",
 ]
 
 setup(

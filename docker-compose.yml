@@ -54,7 +54,7 @@ services:
       ENVIRONMENT: development
       NETWORK_EXPORT_DIR: /app/data/networks
     ports:
-      - "8000:8000"
+      - "3111:8000"
     volumes:
       - .:/app
       - app_data:/app/data  # Named volume for application data
