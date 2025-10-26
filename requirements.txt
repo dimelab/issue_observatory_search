@@ -7,9 +7,8 @@ python-multipart==0.0.6
 sqlalchemy==2.0.25
 asyncpg==0.29.0
 psycopg[binary]==3.1.18  # psycopg3 for better async performance
-psycopg2-binary==2.9.9
 alembic==1.13.1
-pgvector==0.2.4
+# pgvector==0.2.4  # NOT USED - optional vector extension for PostgreSQL
 
 # Authentication
 python-jose[cryptography]==3.3.0
@@ -18,8 +17,8 @@ python-dotenv==1.0.0
 
 # Task Queue
 celery[redis]==5.3.4
-redis==5.0.1
-redis[hiredis]==5.0.1  # Fast C parser for Redis
+redis==4.6.0  # Compatible with celery[redis]==5.3.4 (requires <5.0.0)
+redis[hiredis]==4.6.0  # Fast C parser for Redis
 flower==2.0.1  # Celery monitoring
 
 # Web Scraping
@@ -65,7 +64,7 @@ pytest-cov==4.1.0
 pytest-mock==3.12.0
 factory-boy==3.3.0
 faker==22.0.0
-httpx==0.26.0  # For testing async HTTP
+# httpx==0.26.0  # Already listed in Web Scraping section
 
 # Code Quality
 black==23.12.1
