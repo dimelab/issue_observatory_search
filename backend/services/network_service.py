@@ -111,7 +111,7 @@ class NetworkService:
             file_size=export_stats["file_size"],
             node_count=graph.number_of_nodes(),
             edge_count=graph.number_of_edges(),
-            metadata=metadata,
+            network_metadata=metadata,
             backboning_applied=backboning_config.enabled if backboning_config else False,
             backboning_algorithm=(
                 backboning_config.algorithm if backboning_config and backboning_config.enabled else None
@@ -206,7 +206,7 @@ class NetworkService:
             file_size=export_stats["file_size"],
             node_count=graph.number_of_nodes(),
             edge_count=graph.number_of_edges(),
-            metadata=metadata,
+            network_metadata=metadata,
             backboning_applied=backboning_config.enabled if backboning_config else False,
             backboning_algorithm=(
                 backboning_config.algorithm if backboning_config and backboning_config.enabled else None

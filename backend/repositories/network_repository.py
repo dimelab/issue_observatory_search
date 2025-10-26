@@ -36,7 +36,7 @@ class NetworkRepository:
         file_size: int,
         node_count: int,
         edge_count: int,
-        metadata: Dict[str, Any],
+        network_metadata: Dict[str, Any],
         backboning_applied: bool = False,
         backboning_algorithm: Optional[str] = None,
         backboning_alpha: Optional[float] = None,
@@ -55,7 +55,7 @@ class NetworkRepository:
             file_size: File size in bytes
             node_count: Number of nodes
             edge_count: Number of edges
-            metadata: Network metadata
+            network_metadata: Network metadata
             backboning_applied: Whether backboning was applied
             backboning_algorithm: Backboning algorithm used
             backboning_alpha: Alpha parameter for backboning
@@ -74,7 +74,7 @@ class NetworkRepository:
             file_size=file_size,
             node_count=node_count,
             edge_count=edge_count,
-            metadata=metadata,
+            network_metadata=network_metadata,
             backboning_applied=backboning_applied,
             backboning_algorithm=backboning_algorithm,
             backboning_alpha=backboning_alpha,

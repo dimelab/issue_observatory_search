@@ -59,7 +59,7 @@ class NetworkExport(Base):
     )  # Additional stats
 
     # Network-specific metadata
-    metadata: Mapped[dict] = mapped_column(
+    network_metadata: Mapped[dict] = mapped_column(
         JSON, nullable=False
     )  # Languages, top_n, etc.
 
