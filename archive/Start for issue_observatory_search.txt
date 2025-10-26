@@ -1,0 +1,37 @@
+Start for issue_observatory_search
+
+You are an experienced developer and have to help me create a .clinerules and the necessary docs to describe structure and rules for an application called issue_observatory_search that will be developed using Claude Code. The application should have a front end, but the code should also be usable purely as a backend API. The main backend language is Python. There is a folder called OLD_CODE/ containing previous work on a similar app. These files should be carefully read and used as inspiration, although it might be necessary to rethink the entire structure. You are allowed to create new files, edit old ones, re-arrange the folder structure and help determine the best way to organize the code. Also feel free to make suggestions before creating a specification doc. 
+
+The purpose of the application is to allow users to create an issue mapping based on web searches. Users can input multiple keywords or search phrases which will be searched for using Google Search. The results from Google Search will be stored as a list of websites tied to the specific search phrase that produced it, which is done for each specified search phrase. The user can also input a list of websites manually or based on the results of previous key phrase searches. These websites will be scraped for textual content which will be saved and tied to each website for the specific date on which it was scraped. Lastly the user can export results as a network graph. The results can be regarded as one of two things: 1) the connections between search phrases and the websites they generated (the rank a website achieved on Google Search for a given search phrase can be used as the edge weight) and 2) the connections between websites and the content scraped from the websites taking one of two forms: 1) a bi-partite projection linking nouns and websites (this should have the option to add named entities as well, extracted using named entity recognition), 2) a bi-partite projection representing an advanced knowledge graph where distilled concepts have connections to websites based on content scraped from their sites (backboning techniques might be necessary to prune such a graph).
+
+Ideally the code is organized in a way that makes it easy to add and edit the code as features may need to be added or changed.
+
+Here is a more detailed version of core features:
+
+- Allow users to search for websites based on a list of search terms and then scrape the textual content from those websites. The search terms are sequentially sent to a search engine which returns links to websites. These websites are then scraped using selenium in python or playwright, whichever is most appropriate. The code should be structured in a way that allow developers to add additional search engine integration. Right now two search integrations should be available: 1) Google search via the customsearch API and Google search via SERP API. The data from the scrapes should be stored and attached to the specific user that made the scrape. If the same website is found with multiple searches it should not be scraped twice unless a specific recollect parameter is set. The user can change the following parameters for this main function.
+
+	1. Which search integration to use
+	2. How many of the top results delivered by the search engine for each of the search terms. Between 1 and 200.
+	2. Which domains are allowed, for example [.dk, .de, .com]. Default is to allow all domains, expressed as an empty list. 
+	3. How deep the scrape should be, either level 1 which scrapes only the URL returned by the search engine, or level 	2 which also scrapes additional URLs from the same domain found on the URL returned by the search engine with a maximum of N urls. And level 3 which attempts to follow as many unique URLs from the same domain as possible and scrape them all for text until no new ones appear.
+
+- allow users to manually add websites to be scraped or import websites from a previous search as described in the previous feature. The scraping of websites and searching of key phrases should be kept as completely separate functions.
+
+
+- allow users to export a network file (.gexf) based on the connections between search phrases and websites with Google rank (with the website appearing at the top having the highest rank) being the edge weight.
+
+- Allow users to export a network file (.gexf) which is based on the data of one or more scrapes. The network should represent relations between websites and the content. The code should make it easy for developers to add multiple network building protocols. For now only one primary network building protocol should be available, a bipartite network where nodes represent websites and nouns and edges are drawn between websites that contain the nouns found in the websites' texts. The occurences of nouns should be TF-IDF weighted and for each website only the top nouns should be included. The user can change the following parameters for this main function:
+
+	1. Which network building protocol to use. Only one (bipartite where nodes are websites and nouns) is available at the moment.
+	2. The languages to be included. Multiple languages possible. Default is Danish.
+	3. The top n nouns to include from each website in the network. Can be expressed either as a total number or proportion (n<1). Default is 10.
+
+- Allow users to export a network file (.gexf) which is based on the data of one or more scrapes. The network should represent relations between websites and the content. The code should make it easy for developers to add multiple network building protocols. For now only one primary network building protocol should be available, a bipartite network where nodes represent websites and distilled knowledge concepts based on LLM embeddings and edges are drawn between websites that contain the concepts found in the websites' texts. The occurence of concepts should be based on backboning allowing for P % of concepts to be retained.
+
+	1. Which network building protocol to use. Only one (bipartite where nodes are websites and nouns) is available at the moment.
+	2. The languages to be included. Multiple languages possible. Default is Danish.
+	3. The percentage of concepts to include after backboning is applied. Should default to some kind of 'smart' balanced percentage based on statistical significance
+
+
+The application should have a front end that allow users to log in and scrape data and export networks files. Scrapes made by one user should be accessible only to that user. Search terms can be uploaded as a csv file and stored on the server. Network graphs can be build and exported based on any combination of succesfully scraped search terms. At the moment users cannot be created via front end, but must be added manually by backend admins. The database and frontend-backend integration framework could be build with Flask, SQLite and Flask-login using Vanilla JS + HTMX as the main frontend framework. But please suggest another set up that could be more appropriate.
+

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Networks - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Network Analysis</h1>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newNetworkModal">
+                Create Network
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Available Completed Scrapes</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Pages Scraped</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scrape in scrapes %}
+                            <tr>
+                                <td>{{ scrape.title }}</td>
+                                <td>{{ scrape.pages|length }}</td>
+                                <td>{{ scrape.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" 
+                                            onclick="selectScrapeForNetwork({{ scrape.id }}, '{{ scrape.title }}')">
+                                        Select for Network
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Network Modal -->
+<div class="modal fade" id="newNetworkModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create Bipartite Network</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form hx-post="{{ url_for('api.create_network') }}" 
+                      hx-target="#network-response">
+                    <div class="mb-3">
+                        <label class="form-label">Selected Scrapes</label>
+                        <div id="selected-scrapes" class="border p-3 rounded">
+                            <p class="text-muted">No scrapes selected. Click "Select for Network" on scrapes above.</p>
+                        </div>
+                        <input type="hidden" id="scrape-ids" name="scrape_ids" value="">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="language" class="form-label">Language Model</label>
+                        <select class="form-select" id="language" name="language">
+                            <option value="da_core_news_md">Danish</option>
+                            <option value="en_core_web_sm">English</option>
+                            <option value="de_core_news_sm">German</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="top-n-nouns" class="form-label">Top N Nouns per Website</label>
+                        <input type="number" class="form-control" id="top-n-nouns" name="top_n_nouns" 
+                               min="1" max="100" value="10" required>
+                        <div class="form-text">Number of top TF-IDF weighted nouns to include per website</div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Create & Download Network</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="network-response"></div>
+
+<script>
+let selectedScrapes = [];
+
+function selectScrapeForNetwork(scrapeId, title) {
+    if (!selectedScrapes.find(s => s.id === scrapeId)) {
+        selectedScrapes.push({id: scrapeId, title: title});
+        updateSelectedScrapes();
+    }
+}
+
+function removeSelectedScrape(scrapeId) {
+    selectedScrapes = selectedScrapes.filter(s => s.id !== scrapeId);
+    updateSelectedScrapes();
+}
+
+function updateSelectedScrapes() {
+    const container = document.getElementById('selected-scrapes');
+    const idsInput = document.getElementById('scrape-ids');
+    
+    if (selectedScrapes.length === 0) {
+        container.innerHTML = '<p class="text-muted">No scrapes selected. Click "Select for Network" on scrapes above.</p>';
+        idsInput.value = '';
+    } else {
+        container.innerHTML = selectedScrapes.map(scrape => 
+            `<div class="badge bg-primary me-2 mb-2">
+                ${scrape.title} 
+                <button type="button" class="btn-close btn-close-white ms-1" 
+                        onclick="removeSelectedScrape(${scrape.id})"></button>
+            </div>`
+        ).join('');
+        idsInput.value = selectedScrapes.map(s => s.id).join(',');
+    }
+}
+</script>
+{% endblock %}

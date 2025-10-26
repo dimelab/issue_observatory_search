@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>{% block title %}Issue Observatory Search{% endblock %}</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+
+    <!-- Vis.js Network (for network visualization) -->
+    <link href="https://unpkg.com/vis-network@9.1.6/dist/dist/vis-network.min.css" rel="stylesheet" />
+    <script src="https://unpkg.com/vis-network@9.1.6/dist/vis-network.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/custom.css">
+
+    {% block extra_head %}{% endblock %}
+
+    <!-- Alpine.js x-cloak style -->
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Skip to main content (accessibility) -->
+    <a href="#main-content" class="skip-to-main">Skip to main content</a>
+
+    <!-- Navigation Bar -->
+    {% if show_nav %}
+    <nav class="bg-white shadow-md border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <!-- Logo and Main Navigation -->
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <a href="/dashboard" class="text-xl font-bold text-blue-600">
+                            Issue Observatory
+                        </a>
+                    </div>
+                    <div class="hidden sm:ml-8 sm:flex sm:space-x-8">
+                        <a href="/dashboard"
+                           class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'dashboard' %}border-blue-600 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} text-sm font-medium">
+                            Dashboard
+                        </a>
+                        <a href="/search/new"
+                           class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'search' %}border-blue-600 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} text-sm font-medium">
+                            New Search
+                        </a>
+                        <a href="/scraping/jobs"
+                           class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'scraping' %}border-blue-600 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} text-sm font-medium">
+                            Scraping Jobs
+                        </a>
+                        <a href="/networks"
+                           class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'networks' %}border-blue-600 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} text-sm font-medium">
+                            Networks
+                        </a>
+                    </div>
+                </div>
+
+                <!-- User Menu -->
+                <div class="flex items-center">
+                    <div class="hidden sm:flex sm:items-center sm:space-x-4">
+                        <button
+                            onclick="window.showShortcutsModal()"
+                            class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                            title="Keyboard shortcuts (?)">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                        </button>
+                        <a href="/settings"
+                           class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                           title="Settings">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                        </a>
+                        <span class="text-sm text-gray-700">
+                            <span class="font-medium" id="username">{{ username or 'User' }}</span>
+                        </span>
+                        <button
+                            hx-post="/api/auth/logout"
+                            hx-on::after-request="localStorage.removeItem('token'); window.location.href='/';"
+                            class="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors">
+                            Logout
+                        </button>
+                    </div>
+
+                    <!-- Mobile menu button -->
+                    <div class="flex items-center sm:hidden">
+                        <button type="button"
+                                onclick="document.getElementById('mobile-menu').classList.toggle('hidden')"
+                                class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100">
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile menu -->
+        <div class="hidden sm:hidden" id="mobile-menu">
+            <div class="pt-2 pb-3 space-y-1">
+                <a href="/dashboard"
+                   class="block pl-3 pr-4 py-2 border-l-4 {% if active_page == 'dashboard' %}border-blue-600 text-blue-600 bg-blue-50{% else %}border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700{% endif %} text-base font-medium">
+                    Dashboard
+                </a>
+                <a href="/search/new"
+                   class="block pl-3 pr-4 py-2 border-l-4 {% if active_page == 'search' %}border-blue-600 text-blue-600 bg-blue-50{% else %}border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700{% endif %} text-base font-medium">
+                    New Search
+                </a>
+                <a href="/scraping/jobs"
+                   class="block pl-3 pr-4 py-2 border-l-4 {% if active_page == 'scraping' %}border-blue-600 text-blue-600 bg-blue-50{% else %}border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700{% endif %} text-base font-medium">
+                    Scraping Jobs
+                </a>
+                <div class="border-t border-gray-200 pt-4 pb-3">
+                    <div class="px-4">
+                        <div class="text-base font-medium text-gray-800" id="mobile-username">{{ username or 'User' }}</div>
+                    </div>
+                    <div class="mt-3 space-y-1">
+                        <button
+                            hx-post="/api/auth/logout"
+                            hx-on::after-request="localStorage.removeItem('token'); window.location.href='/';"
+                            class="block w-full text-left px-4 py-2 text-base font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100">
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <!-- Toast Notifications -->
+    {% include 'components/toast.html' %}
+
+    <!-- Keyboard Shortcuts Modal -->
+    {% include 'components/shortcuts-modal.html' %}
+
+    <!-- Main Content -->
+    <main id="main-content" class="{% if show_nav %}py-10{% else %}py-0{% endif %}" role="main">
+        <div class="{% if full_width %}w-full{% else %}max-w-7xl mx-auto px-4 sm:px-6 lg:px-8{% endif %}">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Footer -->
+    {% if show_footer %}
+    <footer class="bg-white border-t border-gray-200 mt-auto">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col sm:flex-row justify-between items-center">
+                <p class="text-sm text-gray-500">
+                    &copy; 2025 Issue Observatory Search. A digital methods research tool.
+                </p>
+                <div class="flex space-x-6 mt-4 sm:mt-0">
+                    <a href="/docs" class="text-sm text-gray-500 hover:text-gray-900">Documentation</a>
+                    <a href="/api/docs" class="text-sm text-gray-500 hover:text-gray-900">API Docs</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    {% endif %}
+
+    <!-- Custom JavaScript -->
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/keyboard-shortcuts.js"></script>
+    <script src="/static/js/data-table.js"></script>
+    <script src="/static/js/app.js"></script>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

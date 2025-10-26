@@ -1,0 +1,101 @@
+# Multi-stage production Dockerfile for Issue Observatory Search
+# Optimized for size and security
+
+# ============================================================================
+# Stage 1: Builder - Install dependencies and build application
+# ============================================================================
+FROM python:3.11-slim as builder
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies required for building
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create application directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies in a virtual environment
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip setuptools wheel && \
+    /opt/venv/bin/pip install -r requirements.txt
+
+# Download spaCy models
+RUN /opt/venv/bin/python -m spacy download en_core_web_sm && \
+    /opt/venv/bin/python -m spacy download da_core_news_sm
+
+# Copy application code
+COPY . .
+
+# ============================================================================
+# Stage 2: Runtime - Create minimal production image
+# ============================================================================
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app /data/exports /data/networks && \
+    chown -R appuser:appuser /app /data
+
+# Set working directory
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+
+# Copy application code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
+# Install Playwright browsers (as appuser)
+USER appuser
+RUN playwright install chromium
+
+# Switch back to root for final setup
+USER root
+
+# Create necessary directories with correct permissions
+RUN mkdir -p /var/log/app && \
+    chown -R appuser:appuser /var/log/app
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/live || exit 1
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Run application with Uvicorn
+CMD ["uvicorn", "backend.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "4", \
+     "--log-config", "logging.json", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "*"]

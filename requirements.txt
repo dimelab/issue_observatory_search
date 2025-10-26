@@ -1,0 +1,107 @@
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+psycopg[binary]==3.1.18  # psycopg3 for better async performance
+psycopg2-binary==2.9.9
+alembic==1.13.1
+pgvector==0.2.4
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# Task Queue
+celery[redis]==5.3.4
+redis==5.0.1
+redis[hiredis]==5.0.1  # Fast C parser for Redis
+flower==2.0.1  # Celery monitoring
+
+# Web Scraping
+playwright==1.41.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+httpx==0.26.0
+
+# Search APIs
+google-api-python-client==2.114.0
+serpapi==0.1.5
+
+# NLP & Text Processing
+spacy==3.7.2
+nltk==3.8.1
+sentence-transformers==2.2.2
+torch==2.1.2  # Required for sentence-transformers
+pandas==2.1.4
+numpy==1.26.3
+scikit-learn==1.4.0
+
+# Network Analysis
+networkx==3.2.1
+python-louvain==0.16  # Community detection
+graph-tool==2.58  # Advanced graph algorithms (optional)
+
+# Data Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3.post1
+aiofiles==23.2.1
+Pillow==10.2.0  # Image processing
+python-magic==0.4.27  # File type detection
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+factory-boy==3.3.0
+faker==22.0.0
+httpx==0.26.0  # For testing async HTTP
+
+# Code Quality
+black==23.12.1
+isort==5.13.2
+flake8==7.0.0
+mypy==1.8.0
+types-redis==4.6.0.20240106
+types-python-dateutil==2.8.19.14
+
+# Development
+ipython==8.19.0
+jupyter==1.0.0
+pre-commit==3.6.0
+
+# Monitoring & Logging
+sentry-sdk[fastapi]==1.39.1
+python-json-logger==2.0.7
+prometheus-client==0.19.0
+prometheus-fastapi-instrumentator==6.1.0  # FastAPI Prometheus metrics
+
+# Optional: Advanced Features
+textstat==0.7.3  # Text statistics
+langdetect==1.0.9  # Language detection
+tldextract==5.1.1  # Domain extraction
+validators==0.22.0  # URL validation
+tenacity==8.2.3  # Retry logic
+ratelimit==2.2.1  # Rate limiting
+cachetools==5.3.2  # Caching utilities
+
+# Phase 9: Performance Optimization
+slowapi==0.1.9  # Rate limiting middleware
+orjson==3.9.15  # Fast JSON serialization (5-10x faster than json)
+ujson==5.9.0  # Ultra-fast JSON (alternative to orjson)
+
+# Phase 10: Production Security & Testing
+bandit==1.7.6  # Security linting
+safety==3.0.1  # Dependency vulnerability scanning
+pytest-xdist==3.5.0  # Parallel test execution
+freezegun==1.4.0  # Time mocking for tests

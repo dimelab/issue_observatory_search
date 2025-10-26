@@ -1,0 +1,127 @@
+<!--
+    Progress Bar Component
+
+    Displays progress indicators for tasks
+
+    Types:
+    - determinate: Shows specific progress (0-100%)
+    - indeterminate: Shows loading animation
+
+    Variants:
+    - primary: Blue (default)
+    - success: Green
+    - warning: Yellow
+    - error: Red
+
+    Usage:
+        {% include 'components/progress.html' with progress=75, variant='success', label='Processing...' %}
+        {% include 'components/progress.html' with indeterminate=True %}
+-->
+
+{% macro progress_bar(value=0, max=100, variant='primary', size='md', show_label=True, label='', indeterminate=False) %}
+<div class="w-full">
+    {% if show_label and label %}
+    <div class="flex justify-between items-center mb-2">
+        <span class="text-sm font-medium text-gray-700">{{ label }}</span>
+        {% if not indeterminate %}
+        <span class="text-sm font-medium text-gray-700">{{ value }}%</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="w-full bg-gray-200 rounded-full overflow-hidden
+        {% if size == 'sm' %}h-1
+        {% elif size == 'md' %}h-2
+        {% elif size == 'lg' %}h-3
+        {% else %}h-2{% endif %}">
+
+        {% if indeterminate %}
+        <!-- Indeterminate Progress Animation -->
+        <div class="h-full
+            {% if variant == 'primary' %}bg-blue-600
+            {% elif variant == 'success' %}bg-green-600
+            {% elif variant == 'warning' %}bg-yellow-600
+            {% elif variant == 'error' %}bg-red-600
+            {% else %}bg-blue-600{% endif %}
+            animate-indeterminate"
+            style="width: 30%; animation: indeterminate 1.5s ease-in-out infinite;">
+        </div>
+        {% else %}
+        <!-- Determinate Progress -->
+        <div class="h-full transition-all duration-500 ease-in-out
+            {% if variant == 'primary' %}bg-blue-600
+            {% elif variant == 'success' %}bg-green-600
+            {% elif variant == 'warning' %}bg-yellow-600
+            {% elif variant == 'error' %}bg-red-600
+            {% else %}bg-blue-600{% endif %}"
+            style="width: {{ (value / max * 100)|round|int }}%"
+            role="progressbar"
+            aria-valuenow="{{ value }}"
+            aria-valuemin="0"
+            aria-valuemax="{{ max }}">
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+<!-- Alpine.js version with reactive progress -->
+{% macro progress_bar_alpine(variant='primary', size='md', show_label=True, label='', indeterminate=False) %}
+<div x-data="{ progress: 0 }" class="w-full">
+    {% if show_label and label %}
+    <div class="flex justify-between items-center mb-2">
+        <span class="text-sm font-medium text-gray-700">{{ label }}</span>
+        {% if not indeterminate %}
+        <span class="text-sm font-medium text-gray-700" x-text="progress + '%'"></span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="w-full bg-gray-200 rounded-full overflow-hidden
+        {% if size == 'sm' %}h-1
+        {% elif size == 'md' %}h-2
+        {% elif size == 'lg' %}h-3
+        {% else %}h-2{% endif %}">
+
+        {% if indeterminate %}
+        <div class="h-full
+            {% if variant == 'primary' %}bg-blue-600
+            {% elif variant == 'success' %}bg-green-600
+            {% elif variant == 'warning' %}bg-yellow-600
+            {% elif variant == 'error' %}bg-red-600
+            {% else %}bg-blue-600{% endif %}
+            animate-pulse">
+            <div class="h-full w-full animate-indeterminate"></div>
+        </div>
+        {% else %}
+        <div class="h-full transition-all duration-500 ease-in-out
+            {% if variant == 'primary' %}bg-blue-600
+            {% elif variant == 'success' %}bg-green-600
+            {% elif variant == 'warning' %}bg-yellow-600
+            {% elif variant == 'error' %}bg-red-600
+            {% else %}bg-blue-600{% endif %}"
+            :style="'width: ' + progress + '%'"
+            role="progressbar"
+            :aria-valuenow="progress"
+            aria-valuemin="0"
+            aria-valuemax="100">
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+<style>
+    @keyframes indeterminate {
+        0% {
+            transform: translateX(-100%);
+        }
+        100% {
+            transform: translateX(400%);
+        }
+    }
+
+    .animate-indeterminate {
+        animation: indeterminate 1.5s ease-in-out infinite;
+    }
+</style>

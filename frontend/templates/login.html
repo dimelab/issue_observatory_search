@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8">
+        <!-- Logo and Header -->
+        <div class="text-center">
+            <h1 class="text-4xl font-bold text-blue-600 mb-2">Issue Observatory</h1>
+            <h2 class="text-xl font-semibold text-gray-900">Search & Analysis Platform</h2>
+            <p class="mt-2 text-sm text-gray-600">
+                Digital methods research tool for systematic web searches and content analysis
+            </p>
+        </div>
+
+        <!-- Login Form -->
+        <div class="bg-white rounded-lg shadow-md p-8">
+            <div class="mb-6">
+                <h3 class="text-2xl font-bold text-gray-900">Sign in to your account</h3>
+            </div>
+
+            <div id="error-message" class="hidden mb-4 p-4 rounded-md bg-red-50 border border-red-200">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-red-800" id="error-text"></p>
+                    </div>
+                </div>
+            </div>
+
+            <form id="login-form" class="space-y-6">
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-700">
+                        Username
+                    </label>
+                    <div class="mt-1">
+                        <input
+                            id="username"
+                            name="username"
+                            type="text"
+                            autocomplete="username"
+                            required
+                            class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            placeholder="Enter your username">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">
+                        Password
+                    </label>
+                    <div class="mt-1">
+                        <input
+                            id="password"
+                            name="password"
+                            type="password"
+                            autocomplete="current-password"
+                            required
+                            class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            placeholder="Enter your password">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <input
+                            id="remember-me"
+                            name="remember-me"
+                            type="checkbox"
+                            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label for="remember-me" class="ml-2 block text-sm text-gray-700">
+                            Remember me
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <button
+                        type="submit"
+                        class="w-full flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        id="submit-button">
+                        <span id="button-text">Sign in</span>
+                        <svg class="hidden animate-spin ml-2 h-5 w-5 text-white" id="loading-spinner" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+
+            <div class="mt-6">
+                <div class="relative">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div class="relative flex justify-center text-sm">
+                        <span class="px-2 bg-white text-gray-500">
+                            Research tool for academic use
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Info -->
+        <div class="text-center text-sm text-gray-600">
+            <p>Access is restricted to authorized researchers.</p>
+            <p class="mt-1">Contact your administrator for credentials.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.getElementById('login-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const submitButton = document.getElementById('submit-button');
+    const buttonText = document.getElementById('button-text');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const errorMessage = document.getElementById('error-message');
+    const errorText = document.getElementById('error-text');
+
+    // Get form data
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+
+    // Show loading state
+    submitButton.disabled = true;
+    buttonText.textContent = 'Signing in...';
+    loadingSpinner.classList.remove('hidden');
+    errorMessage.classList.add('hidden');
+
+    try {
+        // Create form data
+        const formData = new URLSearchParams();
+        formData.append('username', username);
+        formData.append('password', password);
+
+        // Send login request
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Store token
+            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('username', username);
+
+            // Redirect to dashboard
+            window.location.href = '/dashboard';
+        } else {
+            // Show error message
+            errorText.textContent = data.detail || 'Invalid username or password';
+            errorMessage.classList.remove('hidden');
+
+            // Reset button
+            submitButton.disabled = false;
+            buttonText.textContent = 'Sign in';
+            loadingSpinner.classList.add('hidden');
+        }
+    } catch (error) {
+        // Show error message
+        errorText.textContent = 'An error occurred. Please try again.';
+        errorMessage.classList.remove('hidden');
+
+        // Reset button
+        submitButton.disabled = false;
+        buttonText.textContent = 'Sign in';
+        loadingSpinner.classList.add('hidden');
+    }
+});
+</script>
+{% endblock %}

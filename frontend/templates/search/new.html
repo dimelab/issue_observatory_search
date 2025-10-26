@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}New Search - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">New Search Session</h1>
+            <p class="mt-1 text-sm text-gray-600">
+                Configure and execute a systematic web search
+            </p>
+        </div>
+        <a href="/dashboard"
+           class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+            <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+            </svg>
+            Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Error/Success Messages -->
+    <div id="message-container"></div>
+
+    <!-- Search Form -->
+    <form id="search-form" class="bg-white rounded-lg shadow-md p-8 space-y-6">
+        <!-- Session Name -->
+        <div>
+            <label for="session_name" class="block text-sm font-medium text-gray-700">
+                Session Name
+                <span class="text-red-500">*</span>
+            </label>
+            <input
+                type="text"
+                id="session_name"
+                name="session_name"
+                required
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                placeholder="e.g., Climate Change News Analysis">
+            <p class="mt-1 text-xs text-gray-500">Give this search session a descriptive name</p>
+        </div>
+
+        <!-- Search Engine -->
+        <div>
+            <label for="search_engine" class="block text-sm font-medium text-gray-700">
+                Search Engine
+                <span class="text-red-500">*</span>
+            </label>
+            <select
+                id="search_engine"
+                name="search_engine"
+                required
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                <option value="">Select a search engine</option>
+                <option value="google">Google Custom Search</option>
+                <option value="serper">Serper API</option>
+            </select>
+            <p class="mt-1 text-xs text-gray-500">Choose which search engine API to use</p>
+        </div>
+
+        <!-- Keywords -->
+        <div>
+            <label for="keywords" class="block text-sm font-medium text-gray-700">
+                Search Keywords
+                <span class="text-red-500">*</span>
+            </label>
+            <textarea
+                id="keywords"
+                name="keywords"
+                rows="6"
+                required
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-sm"
+                placeholder="Enter one keyword or phrase per line:
+climate change
+global warming
+carbon emissions"></textarea>
+            <p class="mt-1 text-xs text-gray-500">Enter one search query per line. Each will be executed separately.</p>
+        </div>
+
+        <!-- Max Results -->
+        <div>
+            <label for="max_results" class="block text-sm font-medium text-gray-700">
+                Maximum Results per Query
+            </label>
+            <input
+                type="number"
+                id="max_results"
+                name="max_results"
+                min="1"
+                max="100"
+                value="10"
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            <p class="mt-1 text-xs text-gray-500">Number of search results to retrieve per query (1-100)</p>
+        </div>
+
+        <!-- Domain Filter -->
+        <div>
+            <label for="domain_filter" class="block text-sm font-medium text-gray-700">
+                Domain Filter (Optional)
+            </label>
+            <input
+                type="text"
+                id="domain_filter"
+                name="domain_filter"
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                placeholder="e.g., .edu,.org,.gov">
+            <p class="mt-1 text-xs text-gray-500">Filter results by domain extensions (comma-separated TLDs)</p>
+        </div>
+
+        <!-- Auto-scrape Option -->
+        <div class="border-t border-gray-200 pt-6">
+            <div class="flex items-start">
+                <div class="flex items-center h-5">
+                    <input
+                        id="auto_scrape"
+                        name="auto_scrape"
+                        type="checkbox"
+                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                </div>
+                <div class="ml-3">
+                    <label for="auto_scrape" class="font-medium text-gray-700">
+                        Automatically scrape search results
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Start scraping job immediately after search completes
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scrape Depth (conditional) -->
+        <div id="scrape_depth_section" class="hidden">
+            <label for="scrape_depth" class="block text-sm font-medium text-gray-700">
+                Scraping Depth
+            </label>
+            <select
+                id="scrape_depth"
+                name="scrape_depth"
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                <option value="1">Level 1 - Search results only</option>
+                <option value="2">Level 2 - Include linked pages (1 hop)</option>
+                <option value="3">Level 3 - Include 2nd level links (2 hops)</option>
+            </select>
+            <p class="mt-1 text-xs text-gray-500">How deep to follow links from search results</p>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+            <button
+                type="button"
+                onclick="window.location.href='/dashboard'"
+                class="px-6 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                Cancel
+            </button>
+            <button
+                type="submit"
+                id="submit-button"
+                class="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                <span id="button-text">Execute Search</span>
+                <svg class="hidden animate-spin ml-2 h-5 w-5 text-white" id="loading-spinner" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Show/hide scrape depth based on auto-scrape checkbox
+document.getElementById('auto_scrape').addEventListener('change', function() {
+    const scrapeDepthSection = document.getElementById('scrape_depth_section');
+    if (this.checked) {
+        scrapeDepthSection.classList.remove('hidden');
+    } else {
+        scrapeDepthSection.classList.add('hidden');
+    }
+});
+
+// Handle form submission
+document.getElementById('search-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const submitButton = document.getElementById('submit-button');
+    const buttonText = document.getElementById('button-text');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const messageContainer = document.getElementById('message-container');
+
+    // Get form data
+    const formData = {
+        name: document.getElementById('session_name').value.trim(),
+        search_engine: document.getElementById('search_engine').value,
+        keywords: document.getElementById('keywords').value
+            .split('\n')
+            .map(k => k.trim())
+            .filter(k => k.length > 0),
+        max_results: parseInt(document.getElementById('max_results').value),
+        domain_filter: document.getElementById('domain_filter').value.trim() || null,
+        auto_scrape: document.getElementById('auto_scrape').checked,
+        scrape_depth: document.getElementById('auto_scrape').checked
+            ? parseInt(document.getElementById('scrape_depth').value)
+            : null
+    };
+
+    // Validate
+    if (!formData.name) {
+        showMessage('error', 'Please enter a session name');
+        return;
+    }
+    if (!formData.search_engine) {
+        showMessage('error', 'Please select a search engine');
+        return;
+    }
+    if (formData.keywords.length === 0) {
+        showMessage('error', 'Please enter at least one keyword');
+        return;
+    }
+
+    // Show loading state
+    submitButton.disabled = true;
+    buttonText.textContent = 'Executing search...';
+    loadingSpinner.classList.remove('hidden');
+    messageContainer.innerHTML = '';
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/search/execute', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(formData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Show success message
+            showMessage('success', 'Search executed successfully! Redirecting...');
+
+            // Redirect to session details
+            setTimeout(() => {
+                window.location.href = `/search/session/${data.session_id}`;
+            }, 1000);
+        } else {
+            // Show error message
+            showMessage('error', data.detail || 'Failed to execute search');
+
+            // Reset button
+            submitButton.disabled = false;
+            buttonText.textContent = 'Execute Search';
+            loadingSpinner.classList.add('hidden');
+        }
+    } catch (error) {
+        showMessage('error', 'An error occurred. Please try again.');
+
+        // Reset button
+        submitButton.disabled = false;
+        buttonText.textContent = 'Execute Search';
+        loadingSpinner.classList.add('hidden');
+    }
+});
+
+function showMessage(type, message) {
+    const messageContainer = document.getElementById('message-container');
+    const bgColor = type === 'error' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200';
+    const textColor = type === 'error' ? 'text-red-800' : 'text-green-800';
+    const iconColor = type === 'error' ? 'text-red-400' : 'text-green-400';
+    const iconPath = type === 'error'
+        ? 'M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z'
+        : 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z';
+
+    messageContainer.innerHTML = `
+        <div class="rounded-md ${bgColor} border p-4">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 ${iconColor}" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="${iconPath}" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm ${textColor}">${message}</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+</script>
+{% endblock %}

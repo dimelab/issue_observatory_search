@@ -1,0 +1,75 @@
+<!--
+    Dropdown Component
+
+    A reusable, accessible dropdown menu with Alpine.js
+
+    Props:
+    - button_text: Text for the dropdown button
+    - button_class: Additional classes for the button
+    - align: Dropdown alignment ('left', 'right') - default: 'right'
+    - width: Dropdown width class - default: 'w-56'
+
+    Usage:
+        {% call dropdown_menu('Actions', 'right') %}
+            <a href="#" class="...">Action 1</a>
+            <a href="#" class="...">Action 2</a>
+        {% endcall %}
+-->
+
+{% macro dropdown_menu(button_text='Options', align='right', width='w-56', button_class='') %}
+<div x-data="{ open: false }"
+     @click.away="open = false"
+     @keydown.escape.window="open = false"
+     class="relative inline-block text-left">
+
+    <!-- Dropdown Button -->
+    <button
+        @click="open = !open"
+        type="button"
+        :aria-expanded="open"
+        aria-haspopup="true"
+        class="{{ button_class if button_class else 'inline-flex items-center justify-center w-full rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500' }}">
+        {{ button_text }}
+        <svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+        </svg>
+    </button>
+
+    <!-- Dropdown Menu -->
+    <div x-show="open"
+         x-transition:enter="transition ease-out duration-100"
+         x-transition:enter-start="transform opacity-0 scale-95"
+         x-transition:enter-end="transform opacity-100 scale-100"
+         x-transition:leave="transition ease-in duration-75"
+         x-transition:leave-start="transform opacity-100 scale-100"
+         x-transition:leave-end="transform opacity-0 scale-95"
+         class="origin-top-{{ align }} absolute {{ align }}-0 mt-2 {{ width }} rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 focus:outline-none z-50"
+         role="menu"
+         aria-orientation="vertical"
+         x-cloak>
+        <div class="py-1" role="none">
+            {{ caller() if caller else '' }}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+<!-- Dropdown Item Template -->
+{% macro dropdown_item(href='#', icon='', destructive=False) %}
+<a href="{{ href }}"
+   class="group flex items-center px-4 py-2 text-sm {{ 'text-red-700 hover:bg-red-50 hover:text-red-900' if destructive else 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }} transition-colors"
+   role="menuitem">
+    {% if icon %}
+    <svg class="mr-3 h-5 w-5 {{ 'text-red-400 group-hover:text-red-500' if destructive else 'text-gray-400 group-hover:text-gray-500' }}"
+         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {{ icon|safe }}
+    </svg>
+    {% endif %}
+    {{ caller() if caller else '' }}
+</a>
+{% endmacro %}
+
+<!-- Dropdown Divider -->
+{% macro dropdown_divider() %}
+<div class="border-t border-gray-100" role="separator"></div>
+{% endmacro %}

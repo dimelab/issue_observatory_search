@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1>Greetings, {{ user.username }}!</h1>
+        <p class="lead">Manage your issues and create networks.</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Search Terms</h5>
+                <p class="card-text">Upload and manage your search term sets.</p>
+                <a href="{{ url_for('api.get_search_terms') }}" class="btn btn-primary">Manage Search Terms</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Web Scraping</h5>
+                <p class="card-text">Create and monitor your search engine and scraping projects.</p>
+                <a href="{{ url_for('api.get_scrapes') }}" class="btn btn-primary">Manage Scrapes</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Network Analysis</h5>
+                <p class="card-text">Create and export network graphs from your scraped data.</p>
+                <a href="{{ url_for('api.get_networks') }}" class="btn btn-primary">Create Networks</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <h3>Recent Activity</h3>
+        <div hx-get="{{ url_for('api.get_scrapes') }}?limit=5" hx-trigger="load">
+            Loading recent scrapes...
+        </div>
+    </div>
+</div>
+{% endblock %}

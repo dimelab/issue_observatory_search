@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Scrapes - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Web Scrapes</h1>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newScrapeModal">
+                Create New Scrape
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Status</th>
+                                <th>Pages</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scrape in scrapes %}
+                            <tr>
+                                <td>{{ scrape.title }}</td>
+                                <td>
+                                    <span class="badge bg-{% if scrape.status == 'completed' %}success{% elif scrape.status == 'running' %}warning{% elif scrape.status == 'failed' %}danger{% else %}secondary{% endif %}">
+                                        {{ scrape.status|title }}
+                                    </span>
+                                </td>
+                                <td>{{ scrape.pages|length }}</td>
+                                <td>{{ scrape.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <a href="{{ url_for('api.get_scrape', scrape_id=scrape.id) }}" 
+                                       class="btn btn-sm btn-outline-primary">View</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create New Scrape Modal -->
+<div class="modal fade" id="newScrapeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Scrape</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form hx-post="{{ url_for('api.create_scrape') }}" 
+                      hx-target="#scrape-response"
+                      hx-on::after-request="if(event.detail.xhr.status === 200) document.getElementById('newScrapeModal').querySelector('.btn-close').click()">
+                    <div class="mb-3">
+                        <label for="scrape-title" class="form-label">Title</label>
+                        <input type="text" class="form-control" id="scrape-title" name="title" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="search-terms-select" class="form-label">Search Terms</label>
+                        <select class="form-select" id="search-terms-select" name="search_terms_id" required>
+                            <option value="">Loading search terms...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="search-engine" class="form-label">Search Engine</label>
+                        <select class="form-select" id="search-engine" name="search_engine" required>
+                            <option value="google_custom">Google Custom Search</option>
+                            <option value="serp_api">SERP API</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="max-results" class="form-label">Max Results per Term</label>
+                        <input type="number" class="form-control" id="max-results" name="max_results" 
+                               min="1" max="200" value="10" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="scrape-depth" class="form-label">Scrape Depth</label>
+                        <select class="form-select" id="scrape-depth" name="scrape_depth" required>
+                            <option value="1">Level 1 (Search results only)</option>
+                            <option value="2">Level 2 (+ Links from same domain)</option>
+                            <option value="3">Level 3 (+ All accessible domain links)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="allowed-domains" class="form-label">Allowed Domains (optional)</label>
+                        <input type="text" class="form-control" id="allowed-domains" name="allowed_domains" 
+                               placeholder=".dk, .com, .org">
+                        <div class="form-text">Leave empty to allow all domains</div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Start Scraping</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="scrape-response"></div>
+
+<script>
+// Load search terms when modal opens
+document.getElementById('newScrapeModal').addEventListener('shown.bs.modal', function() {
+    // Trigger HTMX request to load search terms
+    htmx.ajax('GET', '{{ url_for("api.get_search_terms_options") }}', {
+        target: '#search-terms-select',
+        swap: 'innerHTML'
+    });
+});
+</script>
+{% endblock %}

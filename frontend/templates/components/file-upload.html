@@ -1,0 +1,266 @@
+<!--
+    File Upload Component
+
+    Drag-and-drop file uploader with progress tracking
+
+    Features:
+    - Drag and drop support
+    - File type validation
+    - Size validation
+    - Preview
+    - Upload progress
+
+    Usage:
+        <div x-data="fileUploader({ accept: '.csv', maxSize: 10485760 })">
+            {% include 'components/file-upload.html' %}
+        </div>
+-->
+
+<div class="w-full">
+    <!-- Drop Zone -->
+    <div
+        @drop.prevent="handleDrop($event)"
+        @dragover.prevent="dragOver = true"
+        @dragleave.prevent="dragOver = false"
+        @dragenter.prevent="dragOver = true"
+        :class="{ 'border-blue-500 bg-blue-50': dragOver, 'border-gray-300': !dragOver }"
+        class="relative border-2 border-dashed rounded-lg p-12 text-center hover:border-gray-400 transition-colors cursor-pointer">
+
+        <input
+            type="file"
+            @change="handleFileSelect($event)"
+            :accept="accept"
+            class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            :multiple="multiple"
+            id="file-upload-input">
+
+        <!-- Upload Icon -->
+        <div class="space-y-3">
+            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+
+            <div class="text-sm text-gray-600">
+                <label for="file-upload-input" class="relative cursor-pointer font-medium text-blue-600 hover:text-blue-500">
+                    <span>Upload a file</span>
+                </label>
+                <span class="pl-1">or drag and drop</span>
+            </div>
+
+            <p class="text-xs text-gray-500" x-show="accept">
+                <span x-text="acceptLabel"></span>
+            </p>
+
+            <p class="text-xs text-gray-500" x-show="maxSize">
+                <span>Maximum file size: </span>
+                <span x-text="formatFileSize(maxSize)"></span>
+            </p>
+        </div>
+    </div>
+
+    <!-- File Preview -->
+    <div x-show="file" x-cloak class="mt-4">
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <!-- File Icon -->
+                    <div class="flex-shrink-0">
+                        <svg class="h-10 w-10 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+
+                    <!-- File Info -->
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-gray-900 truncate" x-text="file?.name"></p>
+                        <p class="text-sm text-gray-500">
+                            <span x-text="formatFileSize(file?.size)"></span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Remove Button -->
+                <button
+                    @click="removeFile()"
+                    type="button"
+                    class="ml-4 flex-shrink-0 text-red-600 hover:text-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 rounded-md p-1">
+                    <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Upload Progress -->
+            <div x-show="uploading" x-cloak class="mt-4">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-sm font-medium text-gray-700">Uploading...</span>
+                    <span class="text-sm font-medium text-gray-700" x-text="uploadProgress + '%'"></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                        class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        :style="'width: ' + uploadProgress + '%'">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div x-show="error" x-cloak class="mt-4">
+                <div class="rounded-md bg-red-50 p-3">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-red-800" x-text="error"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * File Uploader Alpine.js Component
+     *
+     * @param {Object} config - Configuration object
+     * @param {string} config.accept - Accepted file types (e.g., '.csv,.txt')
+     * @param {number} config.maxSize - Maximum file size in bytes
+     * @param {boolean} config.multiple - Allow multiple files
+     * @param {string} config.uploadUrl - URL to upload the file
+     * @param {function} config.onUploadComplete - Callback when upload completes
+     */
+    function fileUploader(config = {}) {
+        return {
+            accept: config.accept || '',
+            maxSize: config.maxSize || 0,
+            multiple: config.multiple || false,
+            uploadUrl: config.uploadUrl || '',
+            onUploadComplete: config.onUploadComplete || (() => {}),
+
+            file: null,
+            dragOver: false,
+            uploading: false,
+            uploadProgress: 0,
+            error: null,
+
+            get acceptLabel() {
+                if (!this.accept) return '';
+                return this.accept.replace(/\./g, '').toUpperCase() + ' files only';
+            },
+
+            handleDrop(event) {
+                this.dragOver = false;
+                const files = event.dataTransfer.files;
+                if (files.length > 0) {
+                    this.handleFile(files[0]);
+                }
+            },
+
+            handleFileSelect(event) {
+                const files = event.target.files;
+                if (files.length > 0) {
+                    this.handleFile(files[0]);
+                }
+            },
+
+            handleFile(file) {
+                this.error = null;
+
+                // Validate file type
+                if (this.accept) {
+                    const acceptedTypes = this.accept.split(',').map(t => t.trim());
+                    const fileExtension = '.' + file.name.split('.').pop();
+                    if (!acceptedTypes.includes(fileExtension)) {
+                        this.error = 'Invalid file type. Please upload ' + this.acceptLabel;
+                        return;
+                    }
+                }
+
+                // Validate file size
+                if (this.maxSize && file.size > this.maxSize) {
+                    this.error = 'File is too large. Maximum size is ' + this.formatFileSize(this.maxSize);
+                    return;
+                }
+
+                this.file = file;
+
+                // Auto-upload if URL is provided
+                if (this.uploadUrl) {
+                    this.uploadFile();
+                }
+            },
+
+            removeFile() {
+                this.file = null;
+                this.error = null;
+                this.uploadProgress = 0;
+                document.getElementById('file-upload-input').value = '';
+            },
+
+            async uploadFile() {
+                if (!this.file || !this.uploadUrl) return;
+
+                this.uploading = true;
+                this.uploadProgress = 0;
+                this.error = null;
+
+                const formData = new FormData();
+                formData.append('file', this.file);
+
+                try {
+                    const xhr = new XMLHttpRequest();
+
+                    // Track upload progress
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            this.uploadProgress = Math.round((e.loaded / e.total) * 100);
+                        }
+                    });
+
+                    // Handle completion
+                    xhr.addEventListener('load', () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            const response = JSON.parse(xhr.responseText);
+                            this.onUploadComplete(response);
+                            showToast('File uploaded successfully', 'success');
+                        } else {
+                            this.error = 'Upload failed: ' + xhr.statusText;
+                        }
+                        this.uploading = false;
+                    });
+
+                    // Handle errors
+                    xhr.addEventListener('error', () => {
+                        this.error = 'Upload failed. Please try again.';
+                        this.uploading = false;
+                    });
+
+                    // Send request
+                    const token = localStorage.getItem('token');
+                    xhr.open('POST', this.uploadUrl);
+                    if (token) {
+                        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+                    }
+                    xhr.send(formData);
+
+                } catch (err) {
+                    this.error = 'Upload failed: ' + err.message;
+                    this.uploading = false;
+                }
+            },
+
+            formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+            }
+        };
+    }
+</script>

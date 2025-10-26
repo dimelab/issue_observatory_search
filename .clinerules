@@ -1,0 +1,257 @@
+# Issue Observatory Search - Development Rules for Claude Code
+
+## Project Overview
+This is a web application for mapping issues through web searches and content analysis. Users can search websites, scrape content, and generate network graphs showing relationships.
+
+## Core Architecture Principles
+1. **Modular Design**: Keep features in separate modules that can be independently developed and tested
+2. **API-First**: Backend should be fully functional as a REST API without frontend
+3. **Async Operations**: Use async/await for I/O operations, especially scraping
+4. **Data Isolation**: Strict user data separation with proper authorization checks
+5. **Extensibility**: Use interfaces/protocols for search engines and network builders
+
+## Code Organization
+
+### Directory Structure
+```
+issue_observatory_search/
+├── backend/
+│   ├── api/              # API endpoints
+│   │   ├── auth.py
+│   │   ├── search.py
+│   │   ├── scraping.py
+│   │   ├── network.py
+│   │   └── admin.py
+│   ├── core/             # Core business logic
+│   │   ├── search_engines/
+│   │   │   ├── base.py
+│   │   │   ├── google_custom.py
+│   │   │   └── serp_api.py
+│   │   ├── scrapers/
+│   │   │   ├── playwright_scraper.py
+│   │   │   └── content_extractor.py
+│   │   ├── analysis/
+│   │   │   ├── noun_extractor.py
+│   │   │   ├── ner_extractor.py
+│   │   │   └── concept_extractor.py
+│   │   └── network/
+│   │       ├── builders/
+│   │       │   ├── base.py
+│   │       │   ├── search_website.py
+│   │       │   ├── website_noun.py
+│   │       │   └── website_concept.py
+│   │       └── exporters/
+│   │           └── gexf_exporter.py
+│   ├── models/           # Database models
+│   │   ├── user.py
+│   │   ├── search.py
+│   │   ├── website.py
+│   │   └── network.py
+│   ├── schemas/          # Pydantic models
+│   ├── services/         # Service layer
+│   ├── tasks/            # Celery tasks
+│   ├── utils/            # Utility functions
+│   ├── config.py         # Configuration
+│   └── main.py           # FastAPI app
+├── frontend/
+│   ├── static/
+│   │   ├── css/
+│   │   ├── js/
+│   │   └── img/
+│   ├── templates/        # HTML templates
+│   │   ├── base.html
+│   │   ├── login.html
+│   │   ├── dashboard.html
+│   │   ├── search.html
+│   │   └── network.html
+│   └── app.py            # Frontend server
+├── migrations/           # Alembic migrations
+├── tests/
+├── docker/
+├── requirements.txt
+├── docker-compose.yml
+└── .env.example
+```
+
+## Development Rules
+
+### 1. API Development
+- All endpoints must have Pydantic schemas for request/response validation
+- Use dependency injection for database sessions and current user
+- Implement proper HTTP status codes
+- Add OpenAPI documentation strings
+- Example pattern:
+```python
+@router.post("/search/execute", response_model=SearchSessionResponse)
+async def execute_search(
+    request: SearchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Execute web searches for given keywords."""
+    # Implementation
+```
+
+### 2. Database Operations
+- Always use SQLAlchemy ORM, never raw SQL
+- Use async sessions for all database operations
+- Implement soft deletes where appropriate
+- Add proper indexes for query performance
+- Include created_at and updated_at timestamps
+
+### 3. Search Engine Integration
+- Create abstract base class for search engines
+- Implement rate limiting and retry logic
+- Cache search results within reasonable time window
+- Handle API key rotation if needed
+- Example interface:
+```python
+class SearchEngineBase(ABC):
+    @abstractmethod
+    async def search(self, query: str, max_results: int, **kwargs) -> List[SearchResult]:
+        pass
+```
+
+### 4. Web Scraping
+- Use Playwright for JavaScript-heavy sites
+- Implement polite scraping (delays, robots.txt)
+- Handle common anti-scraping measures
+- Store raw HTML and extracted text separately
+- Implement checkpointing for long scraping sessions
+
+### 5. Content Analysis
+- Use spaCy for NLP tasks when possible
+- Implement language detection before processing
+- Cache NLP models in memory
+- Use batch processing for efficiency
+- Store both raw and processed results
+
+### 6. Network Generation
+- Use NetworkX for graph operations
+- Implement streaming for large graphs
+- Add metadata to nodes and edges
+- Support multiple export formats (start with GEXF)
+- Use backboning algorithms from specialized libraries
+
+### 7. Task Queue
+- Use Celery for long-running tasks
+- Implement proper task monitoring
+- Store task results in database
+- Add task cancellation support
+- Example:
+```python
+@celery_app.task
+def scrape_websites_task(website_ids: List[int], user_id: int):
+    # Implementation
+```
+
+### 8. Frontend Development
+- Use HTMX for dynamic updates without full page reloads
+- Implement progressive enhancement
+- Add loading states for async operations
+- Use Alpine.js for client-side interactivity
+- Follow accessibility guidelines (WCAG)
+
+### 9. Error Handling
+- Never expose internal errors to users
+- Log all errors with context
+- Implement retry logic for transient failures
+- Return meaningful error messages
+- Use custom exception classes
+
+### 10. Security
+- Validate all inputs
+- Use parameterized queries (via ORM)
+- Implement rate limiting
+- Add CORS configuration
+- Use environment variables for secrets
+- Implement proper authentication/authorization
+
+### 11. Testing
+- Write unit tests for business logic
+- Add integration tests for API endpoints
+- Mock external services in tests
+- Aim for >80% code coverage
+- Use pytest and pytest-asyncio
+
+### 12. Performance
+- Implement database query optimization
+- Use Redis for caching
+- Add pagination for large result sets
+- Implement batch processing
+- Monitor and log slow queries
+
+## Configuration Management
+- Use Pydantic Settings for configuration
+- Support multiple environments
+- Never commit secrets to repository
+- Use .env files for local development
+- Example:
+```python
+class Settings(BaseSettings):
+    database_url: str
+    redis_url: str
+    google_api_key: str
+    
+    class Config:
+        env_file = ".env"
+```
+
+## Deployment Guidelines
+- Use Docker for containerization
+- Implement health checks
+- Add proper logging
+- Use Alembic for database migrations
+- Support horizontal scaling
+
+## Code Style
+- Follow PEP 8
+- Use type hints everywhere
+- Add docstrings for all functions
+- Maximum line length: 88 (Black default)
+- Use async/await consistently
+
+## Git Workflow
+- Feature branches for new features
+- Descriptive commit messages
+- PR reviews required
+- No direct commits to main
+- Tag releases with semantic versioning
+
+## Documentation
+- Keep README updated
+- Document all API endpoints
+- Add inline code comments for complex logic
+- Maintain changelog
+- Create user documentation
+
+## When Adding New Features
+1. Start with API endpoint design
+2. Create database models if needed
+3. Implement business logic in services
+4. Add async tasks for long operations
+5. Create frontend UI
+6. Write tests
+7. Update documentation
+
+## Common Patterns to Follow
+- Repository pattern for data access
+- Service layer for business logic
+- Dependency injection for testing
+- Factory pattern for search engines
+- Strategy pattern for network builders
+
+## Performance Targets
+- API response time < 200ms (excluding scraping)
+- Support 100+ concurrent users
+- Scraping rate: 10+ pages/second
+- Network generation < 30s for 1000 nodes
+
+## Monitoring
+- Log all API requests
+- Track task execution times
+- Monitor memory usage
+- Alert on errors
+- Track user activity
+
+Remember: Code should be self-documenting through good naming and structure, but complex logic should always have explanatory comments.

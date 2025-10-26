@@ -1,0 +1,100 @@
+<!--
+    Tabs Component
+
+    A reusable, accessible tabs component with Alpine.js
+
+    Usage:
+        <div x-data="tabsComponent('tab1')">
+            {% include 'components/tabs.html' %}
+        </div>
+
+    Tab structure:
+        - Define tabs array in x-data
+        - Use tab IDs to identify tab panels
+        - Supports keyboard navigation (Arrow keys, Home, End)
+-->
+
+{% macro tabs(tabs_id='tabs') %}
+<div x-data="{ activeTab: '{{ default_tab }}' }" class="w-full">
+    <!-- Tab List -->
+    <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-8" aria-label="Tabs" role="tablist">
+            <template x-for="tab in tabs" :key="tab.id">
+                <button
+                    @click="activeTab = tab.id"
+                    :id="'tab-' + tab.id"
+                    :aria-selected="activeTab === tab.id"
+                    :aria-controls="'panel-' + tab.id"
+                    :tabindex="activeTab === tab.id ? 0 : -1"
+                    @keydown.arrow-right.prevent="selectNextTab()"
+                    @keydown.arrow-left.prevent="selectPreviousTab()"
+                    @keydown.home.prevent="selectFirstTab()"
+                    @keydown.end.prevent="selectLastTab()"
+                    role="tab"
+                    :class="{
+                        'border-blue-600 text-blue-600': activeTab === tab.id,
+                        'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== tab.id
+                    }"
+                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    <span x-text="tab.label"></span>
+                    <span x-show="tab.badge"
+                          class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="{
+                              'bg-blue-100 text-blue-800': activeTab === tab.id,
+                              'bg-gray-100 text-gray-800': activeTab !== tab.id
+                          }"
+                          x-text="tab.badge"></span>
+                </button>
+            </template>
+        </nav>
+    </div>
+
+    <!-- Tab Panels -->
+    <div class="mt-6">
+        {{ caller() if caller else '' }}
+    </div>
+</div>
+
+<script>
+    function selectNextTab() {
+        const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTab);
+        const nextIndex = (currentIndex + 1) % this.tabs.length;
+        this.activeTab = this.tabs[nextIndex].id;
+        document.getElementById('tab-' + this.activeTab).focus();
+    }
+
+    function selectPreviousTab() {
+        const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTab);
+        const previousIndex = currentIndex === 0 ? this.tabs.length - 1 : currentIndex - 1;
+        this.activeTab = this.tabs[previousIndex].id;
+        document.getElementById('tab-' + this.activeTab).focus();
+    }
+
+    function selectFirstTab() {
+        this.activeTab = this.tabs[0].id;
+        document.getElementById('tab-' + this.activeTab).focus();
+    }
+
+    function selectLastTab() {
+        this.activeTab = this.tabs[this.tabs.length - 1].id;
+        document.getElementById('tab-' + this.activeTab).focus();
+    }
+</script>
+{% endmacro %}
+
+<!-- Tab Panel Template -->
+{% macro tab_panel(tab_id) %}
+<div x-show="activeTab === '{{ tab_id }}'"
+     x-transition:enter="transition ease-out duration-200"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="transition ease-in duration-150"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     :id="'panel-{{ tab_id }}'"
+     role="tabpanel"
+     :aria-labelledby="'tab-{{ tab_id }}'"
+     x-cloak>
+    {{ caller() if caller else '' }}
+</div>
+{% endmacro %}
