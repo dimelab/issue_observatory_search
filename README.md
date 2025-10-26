@@ -68,7 +68,7 @@ cp .env.example .env
 # See docs/DATABASE_SETUP.md for database configuration details
 
 # 5. Run database migrations
-alembic upgrade head
+python -m alembic upgrade head
 
 # 6. Start services
 docker-compose up -d postgres redis  # Or start manually

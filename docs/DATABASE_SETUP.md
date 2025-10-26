@@ -13,8 +13,8 @@ cp .env.example .env
 # 2. Start PostgreSQL with Docker (no manual setup needed!)
 docker-compose up -d postgres
 
-# 3. Run migrations
-alembic upgrade head
+# 3. Run migrations (make sure venv is activated!)
+python -m alembic upgrade head
 
 # Done! Database is ready.
 ```
@@ -88,7 +88,7 @@ docker-compose logs postgres
 
 #### 5. Run migrations
 ```bash
-alembic upgrade head
+python -m alembic upgrade head
 ```
 
 This creates all tables in the database.
@@ -205,7 +205,7 @@ DATABASE_URL=postgresql+psycopg://issue_observatory_user:your_secure_password@lo
 ### Run Migrations
 
 ```bash
-alembic upgrade head
+python -m alembic upgrade head
 ```
 
 ---

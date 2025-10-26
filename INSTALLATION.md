@@ -41,7 +41,7 @@ cp .env.example .env
 docker-compose up -d postgres redis
 
 # 8. Run migrations
-alembic upgrade head
+python -m alembic upgrade head
 
 # 9. Start application
 uvicorn backend.main:app --reload
@@ -207,7 +207,7 @@ brew install redis                   # macOS
 ### Step 6: Run Database Migrations
 
 ```bash
-alembic upgrade head
+python -m alembic upgrade head
 ```
 
 **What this does**:
@@ -217,14 +217,15 @@ alembic upgrade head
 
 **Verify migrations**:
 ```bash
-alembic current  # Should show latest revision
-alembic history  # Show all migrations
+python -m alembic current  # Should show latest revision
+python -m alembic history  # Show all migrations
 ```
 
 **Common issues**:
 - ❌ "Connection refused" → PostgreSQL not running (see Step 5)
 - ❌ "Database does not exist" → Check `DATABASE_URL` in `.env`
-- ❌ Migration fails → Drop database and retry: `alembic downgrade base && alembic upgrade head`
+- ❌ "ModuleNotFoundError" → Make sure virtual environment is activated
+- ❌ Migration fails → Drop database and retry: `python -m alembic downgrade base && python -m alembic upgrade head`
 
 ---
 
@@ -393,13 +394,13 @@ docker-compose up -d postgres
 **Problem**: Migrations fail
 ```bash
 # Reset database (DANGER: deletes all data!)
-alembic downgrade base
-alembic upgrade head
+python -m alembic downgrade base
+python -m alembic upgrade head
 
 # Or start fresh
 docker-compose down -v  # Deletes volumes
 docker-compose up -d postgres
-alembic upgrade head
+python -m alembic upgrade head
 ```
 
 ### Port Conflicts
