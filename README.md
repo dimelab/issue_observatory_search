@@ -48,14 +48,15 @@ pip install -e ".[dev]"
 
 # 2. Install Playwright browsers (for web scraping)
 # This downloads Chromium browser (~300MB)
-playwright install chromium
+python -m playwright install chromium
 
 # 3. Install NLP models (for content analysis)
 python scripts/install_nlp_models.py
 
 # 4. Configure environment
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env with your API keys (database defaults work with Docker!)
+# See docs/DATABASE_SETUP.md for database configuration details
 
 # 5. Run database migrations
 alembic upgrade head
@@ -309,29 +310,28 @@ If `playwright install chromium` fails:
 
 **Issue**: "playwright: command not found"
 ```bash
-# Solution: Install Playwright Python package first
-pip install playwright
-playwright install chromium
+# Solution: Use Python module syntax instead
+python -m playwright install chromium
 ```
 
 **Issue**: "Permission denied" on Linux
 ```bash
 # Solution: Install system dependencies first
-sudo playwright install-deps chromium
-playwright install chromium
+python -m playwright install-deps chromium
+python -m playwright install chromium
 ```
 
 **Issue**: Large download size (~300MB)
 ```bash
 # This is expected - Chromium browser is large
 # Optional: Install only what you need
-playwright install chromium --with-deps  # Includes dependencies
+python -m playwright install chromium --with-deps  # Includes dependencies
 ```
 
 **Issue**: "Executable doesn't exist" when running scraper
 ```bash
 # Solution: Reinstall browsers
-playwright install --force chromium
+python -m playwright install --force chromium
 ```
 
 ### Dependency Installation Issues

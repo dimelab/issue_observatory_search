@@ -28,7 +28,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .[dev]
 
 # 4. Install Playwright browser (~300MB download, 1-2 minutes)
-playwright install chromium
+python -m playwright install chromium
 
 # 5. Install NLP models (~200MB download, 1-2 minutes)
 python scripts/install_nlp_models.py
@@ -78,7 +78,7 @@ pip install -e .[dev]
 ### Step 2: Install Playwright Browser
 
 ```bash
-playwright install chromium
+python -m playwright install chromium
 ```
 
 **What this does**:
@@ -91,14 +91,14 @@ playwright install chromium
 **Disk space**: ~300MB
 
 **Common issues**:
-- ❌ "playwright: command not found" → Run `pip install playwright` first
-- ❌ Permission denied (Linux) → Run `sudo playwright install-deps chromium` first
-- ❌ Download fails → Check internet connection, try `playwright install --force chromium`
+- ❌ "playwright: command not found" → Use `python -m playwright install chromium` instead
+- ❌ Permission denied (Linux) → Run `python -m playwright install-deps chromium` first
+- ❌ Download fails → Check internet connection, try `python -m playwright install --force chromium`
 
 **Alternative browsers** (optional):
 ```bash
-playwright install firefox  # Firefox
-playwright install webkit   # Safari/WebKit
+python -m playwright install firefox  # Firefox
+python -m playwright install webkit   # Safari/WebKit
 ```
 
 ---
@@ -346,23 +346,30 @@ pip show celery redis
 
 ### Playwright Issues
 
+**Problem**: "playwright: command not found"
+```bash
+# Always use Python module syntax
+python -m playwright install chromium
+
+# NOT: playwright install chromium (this won't work in venv)
+```
+
 **Problem**: Browsers not found after installation
 ```bash
 # Reinstall with force
-playwright install --force chromium
+python -m playwright install --force chromium
 
 # Check installation
-playwright --version
-playwright show-browsers
+python -m playwright --version
 ```
 
 **Problem**: Linux system dependencies missing
 ```bash
 # Install all dependencies
-sudo playwright install-deps
+python -m playwright install-deps
 
 # Or for specific browser
-sudo playwright install-deps chromium
+python -m playwright install-deps chromium
 ```
 
 ### Database Issues
