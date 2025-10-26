@@ -16,12 +16,18 @@ def read_requirements(filename):
     with open(req_path, 'r') as f:
         for line in f:
             line = line.strip()
-            # Skip comments, blank lines, and development/testing tools
-            if line and not line.startswith('#'):
-                # Remove inline comments
-                if '#' in line:
-                    line = line.split('#')[0].strip()
+            # Skip comments, blank lines
+            if not line or line.startswith('#'):
+                continue
+
+            # Remove inline comments
+            if '#' in line:
+                line = line.split('#')[0].strip()
+
+            # Skip empty lines after comment removal
+            if line:
                 requirements.append(line)
+
     return requirements
 
 # Core dependencies (from requirements.txt)

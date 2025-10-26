@@ -44,7 +44,7 @@ scikit-learn==1.4.0
 # Network Analysis
 networkx==3.2.1
 python-louvain==0.16  # Community detection
-graph-tool==2.58  # Advanced graph algorithms (optional)
+# graph-tool==2.58  # Advanced graph algorithms (DISABLED: requires system install, not available via pip)
 
 # Data Validation
 pydantic==2.5.3

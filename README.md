@@ -224,6 +224,10 @@ curl -X POST http://localhost:8000/api/networks/generate \
 - **RAM**: 4GB minimum
 - **Disk**: 10GB minimum (for models and data)
 
+**Optional Dependencies**:
+- `graph-tool` - Advanced graph algorithms (requires system install, see `requirements-optional.txt`)
+- GPU support for PyTorch (for faster NLP processing)
+
 ---
 
 ## Technology Stack

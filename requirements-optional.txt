@@ -1,0 +1,38 @@
+# Optional dependencies that require special installation
+# These are NOT installed automatically with pip install -r requirements.txt
+
+# ===========================
+# graph-tool - Advanced Graph Algorithms
+# ===========================
+# NOT available via pip - requires system-level installation
+#
+# Installation instructions:
+#
+# macOS (Homebrew):
+#   brew install graph-tool
+#
+# Ubuntu/Debian:
+#   sudo apt-get install python3-graph-tool
+#
+# Conda:
+#   conda install -c conda-forge graph-tool
+#
+# Docker:
+#   Use image: tiagopeixoto/graph-tool
+#
+# Note: The project works fine WITHOUT graph-tool.
+#       It's only needed for advanced graph algorithms.
+#       NetworkX provides all essential functionality.
+
+# ===========================
+# Other Optional Packages
+# ===========================
+
+# GPU-accelerated PyTorch (if you have NVIDIA GPU)
+# Install from: https://pytorch.org/get-started/locally/
+# torch==2.1.2+cu118  # CUDA 11.8 version
+
+# spaCy language models (downloaded separately)
+# en_core_web_sm  # English small model
+# da_core_news_sm  # Danish small model
+# These are installed via: python -m spacy download <model_name>
