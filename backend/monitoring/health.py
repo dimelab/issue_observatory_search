@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import engine
-from backend.core.cache.redis_cache import get_redis_client
+from backend.core.cache.redis_cache import get_redis_cache
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -99,11 +99,15 @@ class HealthCheck:
         details = {}
 
         try:
-            # Get Redis client
-            redis = await get_redis_client()
+            # Get Redis cache instance
+            cache = get_redis_cache()
+
+            # Ensure connection
+            if not cache.redis:
+                await cache.connect()
 
             # Test Redis connection with ping
-            pong = await redis.ping()
+            pong = await cache.redis.ping()
 
             if not pong:
                 raise Exception("Redis ping failed")
