@@ -10,7 +10,8 @@
     - List skeleton: For list items
 
     Usage:
-        {% include 'components/skeleton.html' with skeleton_type='card', count=3 %}
+        {% from 'components/skeleton.html' import skeleton_card %}
+        {{ skeleton_card() }}
 -->
 
 {% macro skeleton_text(lines=3, class='') %}
