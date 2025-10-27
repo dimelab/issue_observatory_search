@@ -33,16 +33,17 @@ celery -A backend.celery_app worker \
 echo "✓ Analysis worker started"
 echo ""
 
-# Start scraping worker
+# Start scraping worker with xvfb (for headless=False browser)
 echo "Starting scraping worker..."
-xvfb-run celery -A backend.celery_app worker \
+xvfb-run -a celery -A backend.celery_app worker \
     -Q scraping \
     -n scraping_worker@%h \
     --loglevel=info \
     --logfile=logs/celery_scraping.log \
     --pidfile=logs/celery_scraping.pid \
-    --detach
+    --detach &
 
+sleep 2
 echo "✓ Scraping worker started"
 echo ""
 
