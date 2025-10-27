@@ -138,18 +138,19 @@ document.getElementById('login-form').addEventListener('submit', async function(
     errorMessage.classList.add('hidden');
 
     try {
-        // Create form data
-        const formData = new URLSearchParams();
-        formData.append('username', username);
-        formData.append('password', password);
+        // Create JSON payload
+        const loginData = {
+            username: username,
+            password: password
+        };
 
         // Send login request
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json',
             },
-            body: formData
+            body: JSON.stringify(loginData)
         });
 
         const data = await response.json();
@@ -163,7 +164,9 @@ document.getElementById('login-form').addEventListener('submit', async function(
             window.location.href = '/dashboard';
         } else {
             // Show error message
-            errorText.textContent = data.detail || 'Invalid username or password';
+            // Backend uses custom error format: {error: {message: "..."}}
+            const errorMsg = data.error?.message || data.detail || 'Invalid username or password';
+            errorText.textContent = errorMsg;
             errorMessage.classList.remove('hidden');
 
             // Reset button
