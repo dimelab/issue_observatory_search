@@ -197,7 +197,8 @@ async def endpoint(
   - bulk_search.py (4)
 - **8 model field access errors corrected**
 - **3 async session usages updated**
-- **29 function parameter orders fixed** to comply with Python syntax (non-default before default parameters)
+- **31 function parameter orders fixed** to comply with Python syntax (non-default before default parameters)
+  - scraping.py: 2 additional functions (`list_scraping_jobs`, `get_job_content`)
 
 ## Testing
 

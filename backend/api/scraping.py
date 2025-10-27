@@ -176,12 +176,12 @@ async def get_scraping_job(
     description="List all scraping jobs for the current user",
 )
 async def list_scraping_jobs(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     session_id: Optional[int] = Query(None, description="Filter by session ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
 ) -> ScrapingJobList:
     """
     List scraping jobs.
@@ -259,10 +259,10 @@ async def get_job_statistics(
 )
 async def get_job_content(
     job_id: int,
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Offset for pagination"),
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
 ) -> WebsiteContentList:
     """
     Get scraped content for a job.
