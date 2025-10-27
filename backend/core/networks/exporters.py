@@ -268,6 +268,8 @@ def export_to_csv(
     """
     Export NetworkX graph to simple CSV format with Source,Target,Weight columns.
 
+    Uses node labels if available, otherwise falls back to node IDs.
+
     Args:
         graph: NetworkX graph to export
         file_path: Output file path
@@ -289,8 +291,12 @@ def export_to_csv(
         writer.writerow(['Source', 'Target', 'Weight'])
 
         for u, v, data in graph.edges(data=True):
+            # Get node labels (use label attribute if available, otherwise node ID)
+            source_label = graph.nodes[u].get('label', u)
+            target_label = graph.nodes[v].get('label', v)
             weight = data.get('weight', 1.0)
-            writer.writerow([u, v, weight])
+
+            writer.writerow([source_label, target_label, weight])
 
     # Get file size
     file_size = output_path.stat().st_size
