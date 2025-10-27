@@ -1,0 +1,11 @@
+# Example users file
+# Format: username;password
+# Lines starting with # are ignored
+
+alice;securepass123
+bob;anotherpass456
+charlie;mypassword789
+
+# You can add more users below
+# researcher1;password1
+# researcher2;password2

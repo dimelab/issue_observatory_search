@@ -9,14 +9,11 @@
 <div x-data="{
         open: false,
         init() {
-            console.log('Shortcuts modal component initialized');
             window.showShortcutsModal = () => {
-                console.trace('showShortcutsModal called!');
                 this.open = true;
             };
         }
      }"
-     x-effect="if (open) console.log('Shortcuts modal state changed to open')"
      x-cloak>
 
     <!-- Backdrop -->
