@@ -170,6 +170,17 @@
                     <option value="3">Level 3 - Include 2nd level links (2 hops)</option>
                 </select>
             </div>
+            <div>
+                <label for="excluded_domains" class="block text-sm font-medium text-gray-700">
+                    Excluded Domains <span class="text-gray-500 font-normal">(optional)</span>
+                </label>
+                <textarea
+                    id="excluded_domains"
+                    rows="3"
+                    placeholder="linkedin.com&#10;facebook.com&#10;twitter.com"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs"></textarea>
+                <p class="mt-1 text-xs text-gray-500">Enter one domain per line. These domains will be skipped during scraping.</p>
+            </div>
             <div class="flex items-center justify-end space-x-3 pt-4">
                 <button
                     type="button"
@@ -209,7 +220,25 @@ document.getElementById('scrape-form').addEventListener('submit', async function
 
     const jobName = document.getElementById('job_name').value;
     const depth = parseInt(document.getElementById('depth').value);
+    const excludedDomainsText = document.getElementById('excluded_domains').value;
     const token = localStorage.getItem('token');
+
+    // Parse excluded domains (one per line, trim whitespace, ignore empty lines)
+    const excludedDomains = excludedDomainsText
+        .split('\n')
+        .map(line => line.trim().toLowerCase())
+        .filter(line => line.length > 0);
+
+    const requestBody = {
+        name: jobName,
+        session_id: {{ session.id }},
+        depth: depth
+    };
+
+    // Only include excluded_domains if there are any
+    if (excludedDomains.length > 0) {
+        requestBody.excluded_domains = excludedDomains;
+    }
 
     try {
         const response = await fetch('/api/scraping/jobs', {
@@ -218,11 +247,7 @@ document.getElementById('scrape-form').addEventListener('submit', async function
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                name: jobName,
-                session_id: {{ session.id }},
-                depth: depth
-            })
+            body: JSON.stringify(requestBody)
         });
 
         if (response.ok) {

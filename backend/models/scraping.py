@@ -34,6 +34,7 @@ class ScrapingJob(Base):
         String(50), nullable=False, default="same_domain"
     )  # same_domain, allow_all, allow_tld_list
     allowed_tlds: Mapped[list | None] = mapped_column(JSON, nullable=True)  # e.g., [".org", ".edu"]
+    excluded_domains: Mapped[list | None] = mapped_column(JSON, nullable=True)  # e.g., ["linkedin.com", "facebook.com"]
     delay_min: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)  # seconds
     delay_max: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)  # seconds
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)

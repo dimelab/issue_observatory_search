@@ -21,6 +21,10 @@ class ScrapingConfigBase(BaseModel):
         default=None,
         description="Allowed TLDs when domain_filter is allow_tld_list",
     )
+    excluded_domains: Optional[list[str]] = Field(
+        default=None,
+        description="List of domains to exclude from scraping (e.g., ['linkedin.com', 'facebook.com'])",
+    )
     delay_min: float = Field(
         default=2.0,
         ge=0.5,

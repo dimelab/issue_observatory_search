@@ -254,6 +254,21 @@ async def scrape_url_async(
         if not job:
             return {"status": "failed", "error": "Job not found"}
 
+        # Check if domain is excluded
+        if job.excluded_domains:
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc
+
+            # Check if domain or any parent domain is excluded
+            for excluded in job.excluded_domains:
+                excluded = excluded.lower().strip()
+                if domain.lower() == excluded or domain.lower().endswith('.' + excluded):
+                    logger.info(f"Skipping URL {url} - domain {domain} is in excluded list")
+                    job.urls_skipped += 1
+                    await session.commit()
+                    return {"status": "skipped", "reason": "excluded_domain"}
+
         # Check if URL already scraped in this job
         existing = await session.execute(
             select(WebsiteContent)

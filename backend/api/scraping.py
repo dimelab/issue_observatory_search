@@ -60,6 +60,7 @@ async def create_scraping_job(
             depth=job_data.depth,
             domain_filter=job_data.domain_filter,
             allowed_tlds=job_data.allowed_tlds,
+            excluded_domains=job_data.excluded_domains,
             delay_min=job_data.delay_min,
             delay_max=job_data.delay_max,
             max_retries=job_data.max_retries,
