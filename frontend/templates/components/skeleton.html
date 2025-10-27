@@ -10,8 +10,8 @@
     - List skeleton: For list items
 
     Usage:
-        {% from 'components/skeleton.html' import skeleton_card %}
-        {{ skeleton_card() }}
+        Import the macro you need and call it
+        Example: skeleton_card() or skeleton_list(items=5)
 -->
 
 {% macro skeleton_text(lines=3, class='') %}
