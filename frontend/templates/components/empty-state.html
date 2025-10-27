@@ -4,9 +4,8 @@
     Displays friendly empty states with icon, message, and call-to-action
 
     Usage:
-        {% call empty_state('No results found', 'Try adjusting your search criteria') %}
-            <a href="/search/new" class="...">Start New Search</a>
-        {% endcall %}
+        Import the macro and use the call statement
+        Example: empty_state('No results found', 'Try adjusting your search criteria')
 -->
 
 {% macro empty_state(title='', description='', icon_type='default') %}
