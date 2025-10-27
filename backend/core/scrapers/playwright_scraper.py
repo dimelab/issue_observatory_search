@@ -414,18 +414,30 @@ class PlaywrightScraper:
         """
         html_lower = html.lower()
 
-        # Common CAPTCHA indicators
-        captcha_indicators = [
-            "recaptcha",
-            "captcha",
-            "cf-challenge",
-            "cloudflare",
+        # More specific CAPTCHA challenge indicators (not just presence of reCAPTCHA)
+        # Look for actual challenge pages, not just forms that have CAPTCHA
+        captcha_challenge_indicators = [
+            "cf-challenge",  # Cloudflare challenge
+            "cf-browser-verification",  # Cloudflare verification
             "please verify you are a human",
             "are you a robot",
-            "security check",
+            "verify you are human",
+            "complete the security check",
+            "checking your browser",
+            "ray id:",  # Cloudflare error page
         ]
 
-        return any(indicator in html_lower for indicator in captcha_indicators)
+        # Check for actual challenge indicators
+        for indicator in captcha_challenge_indicators:
+            if indicator in html_lower:
+                return True
+
+        # Check if it's ONLY a CAPTCHA page (very short HTML with recaptcha)
+        # Real pages with embedded captchas are usually much longer
+        if "recaptcha" in html_lower and len(html) < 5000:
+            return True
+
+        return False
 
     def _is_rate_limited(self, status_code: Optional[int], html: str) -> bool:
         """
@@ -463,19 +475,20 @@ class PlaywrightScraper:
         try:
             # Run synchronous requests in executor to not block event loop
             loop = asyncio.get_event_loop()
+
+            # Use simpler headers that match the working script
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/121.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+
             response = await loop.run_in_executor(
                 None,
-                lambda: requests.get(
-                    url,
-                    timeout=30,
-                    headers={
-                        "User-Agent": self.user_agent,
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "Accept-Encoding": "gzip, deflate, br",
-                        "Connection": "keep-alive",
-                    }
-                )
+                lambda: requests.get(url, headers=headers, timeout=30)
             )
 
             response.raise_for_status()
