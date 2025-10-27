@@ -278,9 +278,14 @@
             },
 
             async loadNetwork() {
-                const url = `/api/networks/${this.networkId}/gexf`;
-                await this.visualizer.loadFromGEXF(url);
-                this.updateStats();
+                try {
+                    const url = `/api/networks/${this.networkId}/download`;
+                    await this.visualizer.loadFromGEXF(url);
+                    this.updateStats();
+                } catch (error) {
+                    console.error('Failed to load network:', error);
+                    showToast('Failed to load network', 'error');
+                }
             },
 
             updateStats() {
