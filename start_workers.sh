@@ -5,16 +5,30 @@ echo "Starting Celery workers for Issue Observatory Search"
 echo "======================================================"
 echo ""
 
-# Check if Redis is running
-if ! redis-cli ping > /dev/null 2>&1; then
-    echo "⚠ WARNING: Redis is not running!"
-    echo "Start Redis first: redis-server"
-    echo ""
-    exit 1
+# Check if Redis is running (try multiple connection methods)
+REDIS_RUNNING=false
+
+# Try default port
+if redis-cli ping > /dev/null 2>&1; then
+    REDIS_RUNNING=true
+# Try with host specified (for docker)
+elif redis-cli -h localhost -p 6379 ping > /dev/null 2>&1; then
+    REDIS_RUNNING=true
+# Try docker container directly
+elif docker exec issue_observatory_redis redis-cli ping > /dev/null 2>&1; then
+    REDIS_RUNNING=true
 fi
 
-echo "✓ Redis is running"
-echo ""
+if [ "$REDIS_RUNNING" = false ]; then
+    echo "⚠ WARNING: Redis is not running or not accessible!"
+    echo "Start Redis with: docker compose up -d redis"
+    echo ""
+    echo "Continuing anyway (Redis might be running but not detectable)..."
+    echo ""
+else
+    echo "✓ Redis is running"
+    echo ""
+fi
 
 # Function to start a worker in the background
 start_worker() {
