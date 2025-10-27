@@ -33,10 +33,10 @@ def test_login_invalid_username(client: TestClient) -> None:
         json={"username": "nonexistent", "password": "password"}
     )
     assert response.status_code == 401
-    # FastAPI returns error details in 'detail' field for HTTPException
+    # Custom error handler returns error in nested 'error' object
     response_data = response.json()
-    assert "detail" in response_data, f"Response format: {response_data}"
-    assert "Incorrect username or password" in response_data["detail"]
+    assert "error" in response_data
+    assert "Incorrect username or password" in response_data["error"]["message"]
 
 
 def test_login_invalid_password(client: TestClient, test_user: User) -> None:
@@ -46,7 +46,10 @@ def test_login_invalid_password(client: TestClient, test_user: User) -> None:
         json={"username": "testuser", "password": "wrongpassword"}
     )
     assert response.status_code == 401
-    assert "Incorrect username or password" in response.json()["detail"]
+    # Custom error handler returns error in nested 'error' object
+    response_data = response.json()
+    assert "error" in response_data
+    assert "Incorrect username or password" in response_data["error"]["message"]
 
 
 def test_get_current_user(client: TestClient, auth_headers: dict) -> None:
