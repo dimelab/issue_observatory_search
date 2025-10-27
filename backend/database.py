@@ -24,10 +24,9 @@ engine = create_async_engine(
     # Performance optimizations
     pool_use_lifo=True,  # Use LIFO for better connection reuse
     connect_args={
-        "server_settings": {
-            "application_name": "issue_observatory",
-        },
-        "command_timeout": 60,
+        # psycopg3 uses 'options' for server settings, not 'server_settings'
+        "options": "-c application_name=issue_observatory",
+        "connect_timeout": 60,
     },
 )
 
