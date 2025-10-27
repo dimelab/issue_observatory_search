@@ -169,19 +169,27 @@ async def get_network(
     "/{network_id}/download",
     response_class=FileResponse,
     summary="Download network file",
-    description="Download the network file in GEXF format (Gephi-compatible).",
+    description="Download the network file in various formats (GEXF, CSV, GraphML, JSON).",
 )
 async def download_network(
     network_id: int,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    format: str = Query("gexf", description="Export format: gexf, csv, graphml, json"),
 ):
     """
-    Download network file.
+    Download network file in specified format.
 
-    Returns the GEXF file which can be opened in Gephi or other
-    network visualization tools.
+    Formats:
+    - gexf: Gephi-compatible format (default)
+    - csv: Simple edge list with Source,Target,Weight columns
+    - graphml: GraphML format
+    - json: JSON node-link format
     """
+    import networkx as nx
+    import tempfile
+    from backend.core.networks.exporters import export_graph
+
     service = NetworkService(db)
     network = await service.get_network_by_id(network_id)
 
@@ -206,13 +214,53 @@ async def download_network(
             detail="Network file not found",
         )
 
-    # Return file
-    filename = f"{network.name}_{network.id}.gexf"
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
-        media_type="application/xml",
-    )
+    # If requesting GEXF and it exists, return original file
+    if format == "gexf":
+        filename = f"{network.name}_{network.id}.gexf"
+        return FileResponse(
+            path=str(file_path),
+            filename=filename,
+            media_type="application/xml",
+        )
+
+    # For other formats, load graph and export
+    try:
+        # Load graph from GEXF
+        graph = nx.read_gexf(str(file_path))
+
+        # Create temporary file for export
+        with tempfile.NamedTemporaryFile(
+            mode='w',
+            suffix=f'.{format}',
+            delete=False
+        ) as temp_file:
+            temp_path = temp_file.name
+
+        # Export to requested format
+        export_graph(graph, temp_path, format=format)
+
+        # Determine media type
+        media_types = {
+            "csv": "text/csv",
+            "graphml": "application/xml",
+            "json": "application/json",
+        }
+        media_type = media_types.get(format, "application/octet-stream")
+
+        # Return file
+        filename = f"{network.name}_{network.id}.{format}"
+        return FileResponse(
+            path=temp_path,
+            filename=filename,
+            media_type=media_type,
+        )
+
+    except Exception as e:
+        logger.error(f"Error exporting network {network_id} to {format}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to export network in {format} format",
+        )
 
 
 @router.get(

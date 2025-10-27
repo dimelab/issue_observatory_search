@@ -261,6 +261,55 @@ def export_to_edgelist(
     return stats
 
 
+def export_to_csv(
+    graph: nx.Graph,
+    file_path: str,
+) -> Dict[str, Any]:
+    """
+    Export NetworkX graph to simple CSV format with Source,Target,Weight columns.
+
+    Args:
+        graph: NetworkX graph to export
+        file_path: Output file path
+
+    Returns:
+        Dictionary with export statistics
+    """
+    logger.info(f"Exporting graph to CSV: {file_path}")
+
+    # Ensure output directory exists
+    output_path = Path(file_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write CSV with header
+    import csv
+
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Source', 'Target', 'Weight'])
+
+        for u, v, data in graph.edges(data=True):
+            weight = data.get('weight', 1.0)
+            writer.writerow([u, v, weight])
+
+    # Get file size
+    file_size = output_path.stat().st_size
+
+    stats = {
+        "file_path": str(output_path),
+        "file_size": file_size,
+        "node_count": graph.number_of_nodes(),
+        "edge_count": graph.number_of_edges(),
+        "format": "csv",
+    }
+
+    logger.info(
+        f"Exported CSV: {graph.number_of_edges()} edges, {file_size} bytes"
+    )
+
+    return stats
+
+
 def export_to_json(
     graph: nx.Graph,
     file_path: str,
@@ -322,7 +371,7 @@ def export_graph(
     Args:
         graph: NetworkX graph to export
         file_path: Output file path
-        format: Export format (gexf, graphml, edgelist, json)
+        format: Export format (gexf, graphml, edgelist, csv, json)
         **kwargs: Format-specific parameters
 
     Returns:
@@ -337,10 +386,12 @@ def export_graph(
         return export_to_graphml(graph, file_path)
     elif format == "edgelist":
         return export_to_edgelist(graph, file_path, **kwargs)
+    elif format == "csv":
+        return export_to_csv(graph, file_path)
     elif format == "json":
         return export_to_json(graph, file_path)
     else:
         raise ValueError(
             f"Unsupported export format: {format}. "
-            f"Supported formats: gexf, graphml, edgelist, json"
+            f"Supported formats: gexf, graphml, edgelist, csv, json"
         )
