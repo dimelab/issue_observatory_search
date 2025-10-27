@@ -182,7 +182,7 @@ async def search_session(
                 "id": session.id,
                 "name": session.name,
                 "status": session.status or "completed",
-                "search_engine": session.search_engine,
+                "search_engine": session.config.get("search_engine", "unknown") if session.config else "unknown",
                 "created_at": session.created_at,
                 "updated_at": session.updated_at,
                 "query_count": query_count,
