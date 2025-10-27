@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from backend.database import AsyncSessionLocal
 from backend.models import SearchSession, ScrapingJob
 from backend.models.website import WebsiteContent
-from backend.models.analysis import AnalysisJob
+from backend.models.analysis import ExtractedNoun, ExtractedEntity, ContentAnalysis
 
 
 async def check_data():
@@ -25,9 +25,15 @@ async def check_data():
         content = await db.execute(select(func.count(WebsiteContent.id)))
         print(f'3. Scraped Content: {content.scalar()}')
 
-        # Check analysis jobs
-        analysis = await db.execute(select(func.count(AnalysisJob.id)))
-        print(f'4. Analysis Jobs: {analysis.scalar()}')
+        # Check analysis data
+        nouns = await db.execute(select(func.count(ExtractedNoun.id)))
+        print(f'4. Extracted Nouns: {nouns.scalar()}')
+
+        entities = await db.execute(select(func.count(ExtractedEntity.id)))
+        print(f'5. Extracted Entities: {entities.scalar()}')
+
+        analyses = await db.execute(select(func.count(ContentAnalysis.id)))
+        print(f'6. Content Analyses: {analyses.scalar()}')
 
         # Check scraping jobs with content
         print("\n" + "-" * 60)
@@ -46,20 +52,26 @@ async def check_data():
         else:
             print("  No scraping jobs found")
 
-        # Check analysis jobs detail
+        # Check content with analysis
         print("\n" + "-" * 60)
-        print("ANALYSIS JOBS DETAIL:")
+        print("CONTENT WITH ANALYSIS:")
         print("-" * 60)
         result = await db.execute(
-            select(AnalysisJob.id, AnalysisJob.name, AnalysisJob.status, AnalysisJob.job_type)
-            .order_by(AnalysisJob.id)
+            select(WebsiteContent.id, WebsiteContent.url,
+                   func.count(ExtractedNoun.id).label('noun_count'),
+                   func.count(ExtractedEntity.id).label('entity_count'))
+            .outerjoin(ExtractedNoun, WebsiteContent.id == ExtractedNoun.website_content_id)
+            .outerjoin(ExtractedEntity, WebsiteContent.id == ExtractedEntity.website_content_id)
+            .group_by(WebsiteContent.id, WebsiteContent.url)
+            .having(func.count(ExtractedNoun.id) > 0)
+            .limit(10)
         )
-        analysis_data = result.all()
-        if analysis_data:
-            for row in analysis_data:
-                print(f'  Job {row[0]}: "{row[1]}" (status: {row[2]}, type: {row[3]})')
+        content_with_analysis = result.all()
+        if content_with_analysis:
+            for row in content_with_analysis:
+                print(f'  Content {row[0]}: {row[1][:60]}... (nouns: {row[2]}, entities: {row[3]})')
         else:
-            print("  No analysis jobs found")
+            print("  No analyzed content found")
 
         # Check what's needed for network creation
         print("\n" + "=" * 60)
@@ -83,13 +95,23 @@ async def check_data():
         )
         print(f"  ✓ Successfully scraped pages: {content_count.scalar()}")
 
-        completed_analysis = await db.execute(
-            select(func.count(AnalysisJob.id))
-            .where(AnalysisJob.status == 'completed')
+        analyzed_content = await db.execute(
+            select(func.count(func.distinct(ExtractedNoun.website_content_id)))
         )
-        print(f"  ✓ Completed analysis jobs: {completed_analysis.scalar()}")
+        print(f"  ✓ Content with analysis: {analyzed_content.scalar()}")
 
         print("\n" + "=" * 60)
+        print("NEXT STEPS:")
+        print("=" * 60)
+        if analyzed_content.scalar() == 0:
+            print("⚠ No analyzed content found!")
+            print("  You need to run analysis on your scraped content first.")
+            print("  Look for an 'Analysis' menu or API endpoint to analyze content.")
+        elif analyzed_content.scalar() > 0:
+            print("✓ You have analyzed content!")
+            print("  You can now create networks from this data.")
+            print("  Networks will show relationships between extracted nouns/entities.")
+        print("=" * 60)
 
 
 if __name__ == "__main__":
