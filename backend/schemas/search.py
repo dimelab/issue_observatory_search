@@ -96,6 +96,8 @@ class SearchSessionResponse(BaseModel):
     status: str
     query_count: int = 0
     website_count: int = 0
+    scraped_count: int = 0
+    analyzed_count: int = 0
     created_at: datetime
     updated_at: datetime
     queries: Optional[list[SearchQueryResponse]] = None

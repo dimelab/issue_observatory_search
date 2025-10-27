@@ -14,6 +14,13 @@
                 </p>
             </div>
             <div class="flex space-x-2">
+                <a href="/networks/create"
+                   class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+                    <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Create Network
+                </a>
                 <button @click="refreshNetworks()"
                         class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
                     <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,10 +140,13 @@
     <!-- Empty State -->
     <div x-show="!loading && networks.length === 0" x-cloak>
         {% from 'components/empty-state.html' import empty_state %}
-        {% call empty_state('No networks found', 'Create networks from your analysis results', 'network') %}
-            <a href="/analysis"
+        {% call empty_state('No networks found', 'Create networks from your search sessions', 'network') %}
+            <a href="/networks/create"
                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
-                Go to Analysis
+                <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Create Your First Network
             </a>
         {% endcall %}
     </div>

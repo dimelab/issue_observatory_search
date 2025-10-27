@@ -135,6 +135,31 @@ async def list_sessions(
         )
         query_count = query_count_result.scalar() or 0
 
+        # Count scraped content from scraping jobs
+        from backend.models.scraping import ScrapingJob
+        from backend.models.website import WebsiteContent
+
+        scraped_count_result = await db.execute(
+            select(func.count(WebsiteContent.id))
+            .join(ScrapingJob, WebsiteContent.scraping_job_id == ScrapingJob.id)
+            .where(
+                ScrapingJob.session_id == session.id,
+                WebsiteContent.status == 'success'
+            )
+        )
+        scraped_count = scraped_count_result.scalar() or 0
+
+        # Count analyzed content
+        from backend.models.analysis import ExtractedNoun
+
+        analyzed_count_result = await db.execute(
+            select(func.count(func.distinct(ExtractedNoun.website_content_id)))
+            .join(WebsiteContent, ExtractedNoun.website_content_id == WebsiteContent.id)
+            .join(ScrapingJob, WebsiteContent.scraping_job_id == ScrapingJob.id)
+            .where(ScrapingJob.session_id == session.id)
+        )
+        analyzed_count = analyzed_count_result.scalar() or 0
+
         # TODO: Count unique websites (Phase 3)
         website_count = 0
 
@@ -146,6 +171,8 @@ async def list_sessions(
                 status=session.status,
                 query_count=query_count,
                 website_count=website_count,
+                scraped_count=scraped_count,
+                analyzed_count=analyzed_count,
                 created_at=session.created_at,
                 updated_at=session.updated_at,
             )

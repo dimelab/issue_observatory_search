@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block title %}Create Network - Issue Observatory Search{% endblock %}
+
+{% block content %}
+<div x-data="networkCreate()" class="max-w-4xl mx-auto space-y-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">Create Network</h1>
+                <p class="mt-1 text-sm text-gray-600">
+                    Generate a network graph from your search sessions
+                </p>
+            </div>
+            <a href="/networks"
+               class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Networks
+            </a>
+        </div>
+    </div>
+
+    <!-- Network Type Selection -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">1. Select Network Type</h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Search-to-Website Network -->
+            <div @click="networkType = 'search_website'"
+                 :class="networkType === 'search_website' ? 'border-blue-600 bg-blue-50' : 'border-gray-300'"
+                 class="border-2 rounded-lg p-4 cursor-pointer hover:border-blue-400 transition-colors">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">Search → Website</h3>
+                    <input type="radio"
+                           name="networkType"
+                           value="search_website"
+                           x-model="networkType"
+                           class="h-5 w-5 text-blue-600">
+                </div>
+                <p class="text-sm text-gray-600">
+                    Bipartite network showing which search queries lead to which websites, with ranking weights.
+                </p>
+            </div>
+
+            <!-- Website-to-Noun Network -->
+            <div @click="networkType = 'website_noun'"
+                 :class="networkType === 'website_noun' ? 'border-blue-600 bg-blue-50' : 'border-gray-300'"
+                 class="border-2 rounded-lg p-4 cursor-pointer hover:border-blue-400 transition-colors">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">Website → Noun</h3>
+                    <input type="radio"
+                           name="networkType"
+                           value="website_noun"
+                           x-model="networkType"
+                           class="h-5 w-5 text-blue-600">
+                </div>
+                <p class="text-sm text-gray-600">
+                    Bipartite network connecting websites to extracted nouns, weighted by TF-IDF scores.
+                </p>
+                <p class="text-xs text-amber-600 mt-2">
+                    Requires analyzed content
+                </p>
+            </div>
+
+            <!-- Website-to-Concept Network -->
+            <div class="border-2 border-gray-200 bg-gray-50 rounded-lg p-4 cursor-not-allowed opacity-60">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-500">Website → Concept</h3>
+                    <input type="radio" disabled class="h-5 w-5 text-gray-400">
+                </div>
+                <p class="text-sm text-gray-500">
+                    Knowledge graph connecting websites to concepts using LLM analysis.
+                </p>
+                <p class="text-xs text-gray-500 mt-2">
+                    Coming in Phase 7
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Selection -->
+    <div class="bg-white rounded-lg shadow-md p-6" x-show="networkType">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">2. Select Search Sessions</h2>
+
+        <div x-show="loadingSessions" class="text-center py-8">
+            <svg class="animate-spin inline-block h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="mt-2 text-sm text-gray-500">Loading sessions...</p>
+        </div>
+
+        <div x-show="!loadingSessions && sessions.length === 0" class="text-center py-8">
+            <p class="text-gray-500">No search sessions found.</p>
+            <a href="/search/new" class="mt-2 inline-block text-blue-600 hover:underline">Create a search session first</a>
+        </div>
+
+        <div x-show="!loadingSessions && sessions.length > 0" class="space-y-3">
+            <template x-for="session in sessions" :key="session.id">
+                <div @click="toggleSession(session.id)"
+                     :class="selectedSessions.includes(session.id) ? 'border-blue-600 bg-blue-50' : 'border-gray-300'"
+                     class="border-2 rounded-lg p-4 cursor-pointer hover:border-blue-400 transition-colors">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3">
+                                <input type="checkbox"
+                                       :checked="selectedSessions.includes(session.id)"
+                                       @click.stop="toggleSession(session.id)"
+                                       class="h-5 w-5 text-blue-600 rounded">
+                                <h3 class="text-lg font-semibold text-gray-900" x-text="session.name"></h3>
+                            </div>
+                            <div class="mt-2 flex items-center space-x-4 text-sm text-gray-600">
+                                <span x-text="session.query_count + ' queries'"></span>
+                                <span x-show="session.scraped_count">•</span>
+                                <span x-show="session.scraped_count" x-text="session.scraped_count + ' pages scraped'"></span>
+                                <span x-show="session.analyzed_count">•</span>
+                                <span x-show="session.analyzed_count" x-text="session.analyzed_count + ' pages analyzed'"></span>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500" x-text="'Created ' + formatDateTime(session.created_at)"></p>
+
+                            <!-- Warning if analysis needed -->
+                            <div x-show="networkType === 'website_noun' && (!session.analyzed_count || session.analyzed_count === 0)"
+                                 class="mt-2 flex items-start space-x-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                                <svg class="h-5 w-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                </svg>
+                                <span>This session needs analysis before creating website-noun networks</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Network Configuration -->
+    <div class="bg-white rounded-lg shadow-md p-6" x-show="selectedSessions.length > 0">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">3. Configure Network</h2>
+
+        <div class="space-y-4">
+            <!-- Network Name -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Network Name</label>
+                <input type="text"
+                       x-model="networkName"
+                       placeholder="Enter a descriptive name..."
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- Search-Website Options -->
+            <div x-show="networkType === 'search_website'" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Weight Method</label>
+                    <select x-model="config.weight_method"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="inverse_rank">Inverse Rank (1/rank)</option>
+                        <option value="exponential_decay">Exponential Decay</option>
+                        <option value="fixed">Fixed Weight</option>
+                    </select>
+                    <p class="mt-1 text-xs text-gray-500">How to weight edges based on search result ranking</p>
+                </div>
+
+                <div>
+                    <label class="flex items-center">
+                        <input type="checkbox"
+                               x-model="config.aggregate_by_domain"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">Aggregate URLs by domain</span>
+                    </label>
+                    <p class="ml-6 text-xs text-gray-500">Combine multiple pages from the same domain</p>
+                </div>
+            </div>
+
+            <!-- Website-Noun Options -->
+            <div x-show="networkType === 'website_noun'" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Top N Nouns per Website</label>
+                    <input type="number"
+                           x-model.number="config.top_n_nouns"
+                           min="1" max="500"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">Maximum number of nouns to include per website (1-500)</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Minimum TF-IDF Score</label>
+                    <input type="number"
+                           x-model.number="config.min_tfidf_score"
+                           min="0" max="1" step="0.01"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">Filter out nouns with low TF-IDF scores (0.0-1.0)</p>
+                </div>
+
+                <div>
+                    <label class="flex items-center">
+                        <input type="checkbox"
+                               x-model="config.aggregate_by_domain"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">Aggregate URLs by domain</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Auto-analysis notice -->
+            <div x-show="needsAnalysis"
+                 class="flex items-start space-x-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <svg class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                </svg>
+                <div class="flex-1">
+                    <p class="text-sm font-medium text-blue-900">Analysis will run automatically</p>
+                    <p class="text-sm text-blue-700 mt-1">
+                        The selected sessions need content analysis. This will happen automatically before network generation.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="bg-white rounded-lg shadow-md p-6" x-show="selectedSessions.length > 0">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600">
+                    <span x-text="selectedSessions.length"></span> session(s) selected
+                </p>
+            </div>
+            <button @click="generateNetwork()"
+                    :disabled="!networkName || generating"
+                    :class="(!networkName || generating) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'"
+                    class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 transition-colors">
+                <svg x-show="generating" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span x-text="generating ? 'Generating...' : 'Generate Network'"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function networkCreate() {
+        return {
+            networkType: 'search_website',
+            sessions: [],
+            selectedSessions: [],
+            networkName: '',
+            generating: false,
+            loadingSessions: true,
+            config: {
+                weight_method: 'inverse_rank',
+                aggregate_by_domain: true,
+                top_n_nouns: 50,
+                min_tfidf_score: 0.0,
+            },
+
+            async init() {
+                await this.loadSessions();
+            },
+
+            async loadSessions() {
+                this.loadingSessions = true;
+                try {
+                    const response = await fetch('/api/search/sessions?per_page=100', {
+                        headers: {
+                            'Authorization': 'Bearer ' + localStorage.getItem('token')
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.sessions = data.sessions || [];
+                    } else {
+                        showToast('Failed to load sessions', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error loading sessions:', error);
+                    showToast('Error loading sessions', 'error');
+                } finally {
+                    this.loadingSessions = false;
+                }
+            },
+
+            toggleSession(sessionId) {
+                const index = this.selectedSessions.indexOf(sessionId);
+                if (index > -1) {
+                    this.selectedSessions.splice(index, 1);
+                } else {
+                    this.selectedSessions.push(sessionId);
+                }
+            },
+
+            get needsAnalysis() {
+                if (this.networkType !== 'website_noun') return false;
+
+                return this.selectedSessions.some(sessionId => {
+                    const session = this.sessions.find(s => s.id === sessionId);
+                    return !session.analyzed_count || session.analyzed_count === 0;
+                });
+            },
+
+            async generateNetwork() {
+                if (!this.networkName || this.selectedSessions.length === 0) {
+                    showToast('Please provide a network name and select at least one session', 'error');
+                    return;
+                }
+
+                this.generating = true;
+
+                try {
+                    // Prepare request payload
+                    const payload = {
+                        name: this.networkName,
+                        type: this.networkType,
+                        session_ids: this.selectedSessions,
+                    };
+
+                    // Add type-specific config
+                    if (this.networkType === 'search_website') {
+                        payload.weight_method = this.config.weight_method;
+                        payload.aggregate_by_domain = this.config.aggregate_by_domain;
+                    } else if (this.networkType === 'website_noun') {
+                        payload.top_n_nouns = this.config.top_n_nouns;
+                        payload.min_tfidf_score = this.config.min_tfidf_score;
+                        payload.aggregate_by_domain = this.config.aggregate_by_domain;
+                    }
+
+                    const response = await fetch('/api/networks/generate', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + localStorage.getItem('token'),
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        showToast('Network generation started!', 'success');
+
+                        // Redirect to networks list
+                        setTimeout(() => {
+                            window.location.href = '/networks';
+                        }, 1500);
+                    } else {
+                        const error = await response.json();
+                        showToast(error.detail || 'Failed to generate network', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error generating network:', error);
+                    showToast('Error generating network', 'error');
+                } finally {
+                    this.generating = false;
+                }
+            },
+
+            formatDateTime(dateString) {
+                if (!dateString) return 'N/A';
+                return window.formatDateTime(dateString);
+            }
+        };
+    }
+</script>
+{% endblock %}

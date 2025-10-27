@@ -319,3 +319,21 @@ async def networks_list(
             "username": current_user.username,
         }
     )
+
+
+@router.get("/networks/create", response_class=HTMLResponse)
+async def networks_create(
+    request: Request,
+    current_user: CurrentUser,
+):
+    """Render network creation page."""
+    return templates.TemplateResponse(
+        "networks/create.html",
+        {
+            "request": request,
+            "show_nav": True,
+            "show_footer": True,
+            "active_page": "networks",
+            "username": current_user.username,
+        }
+    )

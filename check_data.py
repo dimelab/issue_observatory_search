@@ -95,19 +95,20 @@ async def check_data():
         )
         print(f"  ✓ Successfully scraped pages: {content_count.scalar()}")
 
-        analyzed_content = await db.execute(
+        analyzed_content_result = await db.execute(
             select(func.count(func.distinct(ExtractedNoun.website_content_id)))
         )
-        print(f"  ✓ Content with analysis: {analyzed_content.scalar()}")
+        analyzed_count = analyzed_content_result.scalar()
+        print(f"  ✓ Content with analysis: {analyzed_count}")
 
         print("\n" + "=" * 60)
         print("NEXT STEPS:")
         print("=" * 60)
-        if analyzed_content.scalar() == 0:
+        if analyzed_count == 0:
             print("⚠ No analyzed content found!")
             print("  You need to run analysis on your scraped content first.")
             print("  Look for an 'Analysis' menu or API endpoint to analyze content.")
-        elif analyzed_content.scalar() > 0:
+        elif analyzed_count > 0:
             print("✓ You have analyzed content!")
             print("  You can now create networks from this data.")
             print("  Networks will show relationships between extracted nouns/entities.")
