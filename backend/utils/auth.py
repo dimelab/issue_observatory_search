@@ -34,7 +34,13 @@ def get_password_hash(password: str) -> str:
 
     Returns:
         str: Hashed password
+
+    Note:
+        bcrypt has a 72 byte limit. Passwords are truncated if needed.
     """
+    # Truncate to 72 bytes to comply with bcrypt limitation
+    if len(password.encode('utf-8')) > 72:
+        password = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
     return pwd_context.hash(password)
 
 
