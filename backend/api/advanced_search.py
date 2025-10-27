@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 @router.post("/expand", response_model=QueryExpansionResponse)
 async def generate_query_expansions(
     request: QueryExpansionRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Generate query expansion candidates from a session.
@@ -106,8 +106,8 @@ async def generate_query_expansions(
 @router.post("/expand/approve")
 async def approve_expansion_candidates(
     request: ApproveExpansionRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Approve or reject expansion candidates.
@@ -154,8 +154,8 @@ async def approve_expansion_candidates(
 @router.post("/expand/execute")
 async def execute_approved_expansions(
     request: ExecuteExpansionRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Execute searches for approved expansion candidates.
@@ -226,11 +226,11 @@ async def execute_approved_expansions(
 # Query Template Endpoints
 @router.get("/templates", response_model=List[QueryTemplateResponse])
 async def list_query_templates(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     language: str = Query("en", description="Language filter"),
     framing_type: str = Query(None, description="Framing type filter"),
     include_public: bool = Query(True, description="Include public templates"),
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser,
 ):
     """
     List available query templates.
@@ -268,8 +268,8 @@ async def list_query_templates(
 @router.post("/templates", response_model=QueryTemplateResponse)
 async def create_query_template(
     template: QueryTemplateCreate,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Create a custom query template.
@@ -311,8 +311,8 @@ async def create_query_template(
 async def apply_query_template(
     template_id: int,
     request: ApplyTemplateRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Apply a query template with variable substitutions.
@@ -389,8 +389,8 @@ async def apply_query_template(
 @router.post("/multi-perspective")
 async def generate_multi_perspective_search(
     request: MultiPerspectiveRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Generate and execute multi-perspective search queries.
@@ -466,8 +466,8 @@ async def generate_multi_perspective_search(
 @router.post("/sessions/compare", response_model=SessionComparisonResponse)
 async def compare_sessions(
     request: SessionComparisonRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Compare multiple search sessions.
@@ -501,8 +501,8 @@ async def compare_sessions(
 @router.post("/temporal/search")
 async def execute_temporal_search(
     request: TemporalSearchRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Execute search with date range filtering.
@@ -547,8 +547,8 @@ async def execute_temporal_search(
 @router.post("/temporal/compare")
 async def compare_time_periods(
     request: TemporalComparisonRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Compare search results across multiple time periods.

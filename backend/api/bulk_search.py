@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 
 @router.post("/upload", response_model=BulkSearchValidationResponse)
 async def upload_bulk_search_csv(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     validate_only: bool = True,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser,
 ):
     """
     Upload and validate a bulk search CSV file.
@@ -196,8 +196,8 @@ async def upload_bulk_search_csv(
 async def execute_bulk_search(
     upload_id: int,
     request: BulkSearchExecuteRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Execute a validated bulk search upload.
@@ -261,8 +261,8 @@ async def execute_bulk_search(
 @router.get("/status/{task_id}", response_model=BulkSearchStatusResponse)
 async def get_bulk_search_status(
     task_id: str,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get status of a bulk search task.
@@ -331,8 +331,8 @@ async def get_bulk_search_status(
 @router.get("/results/{upload_id}")
 async def get_bulk_search_results(
     upload_id: int,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get results summary for a completed bulk search.

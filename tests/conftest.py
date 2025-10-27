@@ -14,8 +14,8 @@ from backend.models.user import User
 from backend.utils.auth import get_password_hash
 
 
-# Test database URL
-TEST_DATABASE_URL = "postgresql+psycopg://test:test@localhost:5432/test_issue_observatory"
+# Test database URL (using port 5433 to match docker-compose configuration)
+TEST_DATABASE_URL = "postgresql+psycopg://test:test@localhost:5433/test_issue_observatory"
 
 
 @pytest.fixture(scope="session")

@@ -157,7 +157,8 @@ from backend.utils.dependencies import CurrentUser
 @router.get("/endpoint")
 async def endpoint(
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),  # All Query params come last
 ):
     # current_user is automatically a User instance
     user_id = current_user.id
@@ -176,6 +177,13 @@ async def endpoint(
     pass
 ```
 
+**IMPORTANT:** Python requires non-default parameters to come before parameters with defaults. The `CurrentUser` type alias contains `Annotated[User, Depends(get_current_active_user)]`, which internally has a dependency but appears as a non-default parameter in the signature. Therefore:
+
+1. ✅ Path parameters (no default) come first: `user_id: int`
+2. ✅ Dependency-injected params without visible defaults: `current_user: CurrentUser`
+3. ✅ Dependency-injected params with visible defaults: `db: AsyncSession = Depends(get_db)`
+4. ✅ Query/Form params with defaults: `page: int = Query(1)`
+
 ## Total Changes
 
 - **7 files modified**
@@ -189,6 +197,7 @@ async def endpoint(
   - bulk_search.py (4)
 - **8 model field access errors corrected**
 - **3 async session usages updated**
+- **29 function parameter orders fixed** to comply with Python syntax (non-default before default parameters)
 
 ## Testing
 

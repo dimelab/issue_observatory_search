@@ -99,12 +99,12 @@ async def generate_network(
     description="Get a paginated list of networks for the current user.",
 )
 async def list_networks(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Results per page"),
     type: Optional[str] = Query(None, description="Filter by network type"),
     session_id: Optional[int] = Query(None, description="Filter by session ID"),
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
 ):
     """
     List networks for the current user.

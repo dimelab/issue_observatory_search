@@ -24,10 +24,10 @@ templates.env.filters["format_number"] = format_number
 
 @router.get("/api/search/sessions", response_class=HTMLResponse)
 async def get_sessions_partial(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get search sessions list as HTML partial."""
     # Calculate offset
@@ -151,11 +151,11 @@ async def get_query_results_partial(
 
 @router.get("/api/scraping/jobs", response_class=HTMLResponse)
 async def get_jobs_partial(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     status_filter: Optional[str] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get scraping jobs list as HTML partial."""
     # Build query
@@ -238,10 +238,10 @@ async def get_jobs_partial(
 @router.get("/api/scraping/jobs/{job_id}/content", response_class=HTMLResponse)
 async def get_job_content_partial(
     job_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get scraped content for a job as HTML partial."""
     # Verify job belongs to user
