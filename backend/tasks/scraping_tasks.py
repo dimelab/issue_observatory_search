@@ -346,22 +346,28 @@ async def scrape_url_async(
         if scrape_result.meta_description:
             website.meta_description = scrape_result.meta_description
 
+        # Helper function to remove NUL bytes that PostgreSQL can't handle
+        def clean_text(text: str | None) -> str | None:
+            if text is None:
+                return None
+            return text.replace('\x00', '')
+
         # Create WebsiteContent record
         content = WebsiteContent(
             website_id=website.id,
             user_id=job.user_id,
             scraping_job_id=job.id,
             url=url,
-            html_content=scrape_result.html_content,
-            extracted_text=scrape_result.extracted_text,
-            title=scrape_result.title,
-            meta_description=scrape_result.meta_description,
+            html_content=clean_text(scrape_result.html_content),
+            extracted_text=clean_text(scrape_result.extracted_text),
+            title=clean_text(scrape_result.title),
+            meta_description=clean_text(scrape_result.meta_description),
             language=scrape_result.language,
             word_count=scrape_result.word_count,
             scrape_depth=depth,
             parent_url=parent_url,
             status=scrape_result.status,
-            error_message=scrape_result.error_message,
+            error_message=clean_text(scrape_result.error_message),
             outbound_links=scrape_result.outbound_links,
             http_status_code=scrape_result.http_status_code,
             final_url=scrape_result.final_url,
