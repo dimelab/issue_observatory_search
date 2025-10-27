@@ -24,6 +24,7 @@ flower==2.0.1  # Celery monitoring
 
 # Web Scraping
 playwright==1.41.0
+playwright-stealth==2.0.0  # Stealth mode for bypassing bot detection
 beautifulsoup4==4.12.3
 lxml==5.1.0
 httpx==0.26.0
