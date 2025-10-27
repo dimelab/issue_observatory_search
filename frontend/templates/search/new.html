@@ -233,22 +233,30 @@ document.getElementById('search-form').addEventListener('submit', async function
 
     // Get form data
     const formData = {
-        name: document.getElementById('session_name').value.trim(),
+        session_name: document.getElementById('session_name').value.trim(),
         search_engine: document.getElementById('search_engine').value,
-        keywords: document.getElementById('keywords').value
+        queries: document.getElementById('keywords').value
             .split('\n')
             .map(k => k.trim())
             .filter(k => k.length > 0),
         max_results: parseInt(document.getElementById('max_results').value),
-        domain_filter: document.getElementById('domain_filter').value.trim() || null,
+        language: document.getElementById('language').value,
+        country: document.getElementById('country').value,
+        allowed_domains: document.getElementById('domain_filter').value.trim()
+            ? document.getElementById('domain_filter').value.split(',').map(d => d.trim())
+            : null,
         auto_scrape: document.getElementById('auto_scrape').checked,
-        scrape_depth: document.getElementById('auto_scrape').checked
-            ? parseInt(document.getElementById('scrape_depth').value)
+        scrape_config: document.getElementById('auto_scrape').checked
+            ? {
+                depth: parseInt(document.getElementById('scrape_depth').value),
+                max_urls_per_domain: 10,
+                recollect: false
+              }
             : null
     };
 
     // Validate
-    if (!formData.name) {
+    if (!formData.session_name) {
         showMessage('error', 'Please enter a session name');
         return;
     }
@@ -256,7 +264,7 @@ document.getElementById('search-form').addEventListener('submit', async function
         showMessage('error', 'Please select a search engine');
         return;
     }
-    if (formData.keywords.length === 0) {
+    if (formData.queries.length === 0) {
         showMessage('error', 'Please enter at least one keyword');
         return;
     }
