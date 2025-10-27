@@ -1,7 +1,10 @@
 #!/bin/bash
 # Setup test database for pytest
 
+set -e  # Exit on error
+
 echo "Setting up test database for Issue Observatory Search..."
+echo ""
 
 # Check if PostgreSQL container is running
 if ! docker ps | grep -q postgres; then
@@ -16,41 +19,64 @@ CONTAINER_NAME=$(docker ps --filter "name=postgres" --format "{{.Names}}" | head
 
 if [ -z "$CONTAINER_NAME" ]; then
     echo "❌ Could not find PostgreSQL container. Make sure docker-compose is running."
+    echo "   Try: docker-compose up -d postgres"
     exit 1
 fi
 
 echo "✅ Found PostgreSQL container: $CONTAINER_NAME"
+echo ""
 
 # Drop existing test database if it exists
 echo "🗑️  Dropping existing test database (if exists)..."
-docker exec -it $CONTAINER_NAME psql -U postgres -c "DROP DATABASE IF EXISTS test_issue_observatory;" 2>/dev/null
+docker exec $CONTAINER_NAME psql -U postgres -c "DROP DATABASE IF EXISTS test_issue_observatory;" 2>/dev/null || true
 
 # Drop existing test user if exists
 echo "🗑️  Dropping existing test user (if exists)..."
-docker exec -it $CONTAINER_NAME psql -U postgres -c "DROP USER IF EXISTS test;" 2>/dev/null
+docker exec $CONTAINER_NAME psql -U postgres -c "DROP OWNED BY test CASCADE;" 2>/dev/null || true
+docker exec $CONTAINER_NAME psql -U postgres -c "DROP USER IF EXISTS test;" 2>/dev/null || true
 
-# Create test user
+# Create test user with proper permissions
 echo "👤 Creating test user..."
-docker exec -it $CONTAINER_NAME psql -U postgres -c "CREATE USER test WITH PASSWORD 'test';"
+docker exec $CONTAINER_NAME psql -U postgres -c "CREATE USER test WITH PASSWORD 'test' CREATEDB;"
 
 # Create test database
 echo "💾 Creating test database..."
-docker exec -it $CONTAINER_NAME psql -U postgres -c "CREATE DATABASE test_issue_observatory OWNER test;"
+docker exec $CONTAINER_NAME psql -U postgres -c "CREATE DATABASE test_issue_observatory OWNER test;"
 
-# Grant privileges
+# Grant all privileges
 echo "🔐 Granting privileges..."
-docker exec -it $CONTAINER_NAME psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE test_issue_observatory TO test;"
+docker exec $CONTAINER_NAME psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE test_issue_observatory TO test;"
+docker exec $CONTAINER_NAME psql -U postgres -d test_issue_observatory -c "GRANT ALL ON SCHEMA public TO test;"
 
-# Verify setup
+# Verify the user can connect
+echo ""
+echo "🔍 Verifying test user connection..."
+if docker exec $CONTAINER_NAME psql -U test -d test_issue_observatory -c "SELECT 1;" > /dev/null 2>&1; then
+    echo "✅ Test user can connect successfully!"
+else
+    echo "❌ Test user connection failed!"
+    echo ""
+    echo "Trying to diagnose the issue..."
+    docker exec $CONTAINER_NAME psql -U postgres -c "\du test"
+    docker exec $CONTAINER_NAME psql -U postgres -c "\l test_issue_observatory"
+    exit 1
+fi
+
 echo ""
 echo "✅ Test database setup complete!"
 echo ""
-echo "Database URL: postgresql+psycopg://test:test@localhost:5433/test_issue_observatory"
+echo "Configuration:"
+echo "  Database: test_issue_observatory"
+echo "  User: test"
+echo "  Password: test"
+echo "  Host: localhost"
+echo "  Port: 5433 (external)"
 echo ""
-echo "Note: The tests use port 5433 (external) which maps to 5432 (internal)"
-echo "This matches the docker-compose.yml configuration"
+echo "Connection URL:"
+echo "  postgresql+psycopg://test:test@localhost:5433/test_issue_observatory"
 echo ""
 echo "You can now run tests with:"
 echo "  pytest -v"
+echo "  pytest tests/test_auth.py -v"
 echo "  pytest --cov=backend --cov-report=term-missing"
 echo ""
