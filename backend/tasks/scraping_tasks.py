@@ -256,7 +256,6 @@ async def scrape_url_async(
 
         # Check if domain is excluded
         if job.excluded_domains:
-            from urllib.parse import urlparse
             parsed_url = urlparse(url)
             domain = parsed_url.netloc
 
