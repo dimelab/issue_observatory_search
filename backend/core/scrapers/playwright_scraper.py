@@ -177,6 +177,7 @@ class PlaywrightScraper:
                 args=launch_args,
                 executable_path="/usr/bin/google-chrome",  # Use installed Chrome
             )
+            logger.info(f"Browser launched: executable=/usr/bin/google-chrome, headless={self.headless}")
         return self._browser
 
     async def close(self) -> None:
