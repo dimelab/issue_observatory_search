@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth
 
 from backend.utils.robots import RobotsChecker
 from backend.utils.content_extraction import (
@@ -332,8 +332,8 @@ class PlaywrightScraper:
             Object.defineProperty(window, 'outerHeight', { get: () => 900 });
         """)
 
-        # Apply playwright-stealth for maximum stealth
-        await stealth_async(page)
+        # Apply playwright-stealth for maximum stealth (works with async Playwright)
+        await stealth(page)
 
         return page
 
