@@ -1,7 +1,7 @@
 """FastAPI dependencies for authentication and authorization."""
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,20 +11,26 @@ from backend.models.user import User
 from backend.schemas.auth import TokenData
 from backend.utils.auth import decode_access_token
 
-# HTTP Bearer token scheme
-security = HTTPBearer()
+# HTTP Bearer token scheme (auto_error=False to make it optional)
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    access_token: Optional[str] = Cookie(None),
 ) -> User:
     """
     Get the current authenticated user from JWT token.
 
+    Supports both:
+    - Bearer token in Authorization header (for API requests)
+    - Token in cookie (for HTML page requests)
+
     Args:
-        credentials: HTTP Bearer credentials
+        credentials: HTTP Bearer credentials (optional)
         db: Database session
+        access_token: Token from cookie (optional)
 
     Returns:
         User: Current authenticated user
@@ -38,7 +44,16 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    token = credentials.credentials
+    # Try to get token from Authorization header first, then from cookie
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif access_token:
+        token = access_token
+
+    if not token:
+        raise credentials_exception
+
     payload = decode_access_token(token)
 
     if payload is None:

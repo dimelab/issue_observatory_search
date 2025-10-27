@@ -156,9 +156,12 @@ document.getElementById('login-form').addEventListener('submit', async function(
         const data = await response.json();
 
         if (response.ok) {
-            // Store token
+            // Store token in both localStorage and cookie
             localStorage.setItem('token', data.access_token);
             localStorage.setItem('username', username);
+
+            // Set cookie for page navigation (expires in 100 days)
+            document.cookie = `access_token=${data.access_token}; path=/; max-age=${data.expires_in}; SameSite=Lax`;
 
             // Redirect to dashboard
             window.location.href = '/dashboard';
