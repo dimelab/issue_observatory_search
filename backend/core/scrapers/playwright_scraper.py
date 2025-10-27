@@ -121,11 +121,12 @@ class PlaywrightScraper:
         self.respect_robots_txt = respect_robots_txt
         self.headless = headless
 
-        # Default user agent (recent Chrome on Mac)
+        # Default user agent (recent Chrome on Windows - more common than Mac)
+        # Updated to latest stable Chrome version for better compatibility
         self.user_agent = user_agent or (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/119.0.0.0 Safari/537.36"
+            "Chrome/120.0.0.0 Safari/537.36"
         )
 
         # Initialize robots checker
@@ -140,7 +141,7 @@ class PlaywrightScraper:
 
     async def _ensure_browser(self) -> Browser:
         """
-        Ensure browser is initialized.
+        Ensure browser is initialized with stealth settings.
 
         Returns:
             Browser instance
@@ -150,9 +151,20 @@ class PlaywrightScraper:
             self._browser = await self._playwright.chromium.launch(
                 headless=self.headless,
                 args=[
+                    # Core anti-detection
                     "--disable-blink-features=AutomationControlled",
+
+                    # Memory and performance
                     "--disable-dev-shm-usage",
                     "--no-sandbox",
+
+                    # Additional stealth flags
+                    "--disable-web-security",
+                    "--disable-features=IsolateOrigins,site-per-process",
+
+                    # Reduce fingerprinting
+                    "--disable-gpu",
+                    "--window-size=1920,1080",
                 ]
             )
         return self._browser
@@ -169,7 +181,7 @@ class PlaywrightScraper:
 
     async def _create_page(self) -> Page:
         """
-        Create a new browser page with anti-detection measures.
+        Create a new browser page with enhanced anti-detection measures.
 
         Returns:
             Configured Page instance
@@ -180,25 +192,60 @@ class PlaywrightScraper:
             viewport={"width": 1920, "height": 1080},
             locale="en-US",
             timezone_id="America/New_York",
+            # Additional stealth settings
+            has_touch=False,
+            java_script_enabled=True,
+            ignore_https_errors=True,
         )
 
-        # Add extra HTTP headers
+        # Add realistic HTTP headers
         await context.set_extra_http_headers({
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
-            "DNT": "1",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
         })
 
         page = await context.new_page()
 
-        # Override webdriver detection
+        # Comprehensive anti-detection script
         await page.add_init_script("""
+            // Remove webdriver property
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
+
+            // Override plugins to avoid headless detection
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+
+            // Override languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+
+            // Chrome specific properties
+            window.chrome = {
+                runtime: {}
+            };
+
+            // Permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+
+            // Remove automation-specific properties
+            delete navigator.__proto__.webdriver;
         """)
 
         return page
@@ -310,15 +357,15 @@ class PlaywrightScraper:
             # Create new page
             page = await self._create_page()
 
-            # Navigate to URL
+            # Navigate to URL with realistic waiting
             response = await page.goto(
                 url,
                 wait_until="domcontentloaded",
                 timeout=self.timeout,
             )
 
-            # Wait a bit for dynamic content to load
-            await page.wait_for_timeout(1000)
+            # Wait for dynamic content to load (2-3 seconds for more human-like behavior)
+            await page.wait_for_timeout(random.randint(2000, 3000))
 
             # Get final URL (after redirects)
             final_url = page.url

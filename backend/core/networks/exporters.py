@@ -18,12 +18,13 @@ def export_to_gexf(
     size_attr: str = "degree",
     min_size: float = 10.0,
     max_size: float = 100.0,
+    add_visual_attributes: bool = False,
 ) -> Dict[str, Any]:
     """
     Export NetworkX graph to GEXF format (Gephi-compatible).
 
     GEXF (Graph Exchange XML Format) is the standard format for Gephi.
-    This function adds visual attributes (colors, sizes) based on node properties.
+    By default, exports without visual attributes so users can style in Gephi.
 
     Args:
         graph: NetworkX graph to export
@@ -32,6 +33,7 @@ def export_to_gexf(
         size_attr: Node attribute to use for sizing ('degree' or attribute name)
         min_size: Minimum node size
         max_size: Maximum node size
+        add_visual_attributes: Whether to add pre-computed colors/sizes (default: False)
 
     Returns:
         Dictionary with export statistics
@@ -44,14 +46,20 @@ def export_to_gexf(
     # Clean None values from attributes (GEXF doesn't support them)
     _clean_none_values(export_graph)
 
-    # Calculate and add visual attributes
-    _add_visual_attributes(
-        export_graph,
-        node_type_colors=node_type_colors,
-        size_attr=size_attr,
-        min_size=min_size,
-        max_size=max_size,
-    )
+    # Optionally add visual attributes (disabled by default)
+    if add_visual_attributes:
+        _add_visual_attributes(
+            export_graph,
+            node_type_colors=node_type_colors,
+            size_attr=size_attr,
+            min_size=min_size,
+            max_size=max_size,
+        )
+    else:
+        # Ensure all nodes have labels
+        for node in export_graph.nodes():
+            if "label" not in export_graph.nodes[node]:
+                export_graph.nodes[node]["label"] = str(node)
 
     # Ensure output directory exists
     output_path = Path(file_path)

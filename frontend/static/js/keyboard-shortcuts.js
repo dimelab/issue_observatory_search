@@ -299,19 +299,3 @@ const shortcutManager = new ShortcutManager();
 
 // Export to window
 window.shortcutManager = shortcutManager;
-
-// Accessibility: Announce keyboard shortcuts availability
-document.addEventListener('DOMContentLoaded', () => {
-    // Add aria-live region for screen reader announcements
-    const liveRegion = document.createElement('div');
-    liveRegion.id = 'sr-live-region';
-    liveRegion.className = 'sr-only';
-    liveRegion.setAttribute('aria-live', 'polite');
-    liveRegion.setAttribute('aria-atomic', 'true');
-    document.body.appendChild(liveRegion);
-
-    // Announce shortcut availability
-    setTimeout(() => {
-        liveRegion.textContent = 'Keyboard shortcuts are available. Press ? to view all shortcuts.';
-    }, 1000);
-});

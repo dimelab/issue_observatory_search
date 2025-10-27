@@ -337,3 +337,23 @@ async def networks_create(
             "username": current_user.username,
         }
     )
+
+
+@router.get("/networks/{network_id}/visualize", response_class=HTMLResponse)
+async def networks_visualize(
+    request: Request,
+    network_id: int,
+    current_user: CurrentUser,
+):
+    """Render network visualization page."""
+    return templates.TemplateResponse(
+        "networks/visualize.html",
+        {
+            "request": request,
+            "show_nav": True,
+            "show_footer": True,
+            "active_page": "networks",
+            "username": current_user.username,
+            "network_id": network_id,
+        }
+    )
