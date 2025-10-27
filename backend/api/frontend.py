@@ -92,7 +92,7 @@ async def dashboard(
 @router.get("/search/new", response_class=HTMLResponse)
 async def new_search(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUser,
 ):
     """Render new search page."""
     return templates.TemplateResponse(
@@ -197,7 +197,7 @@ async def search_session(
 @router.get("/scraping/jobs", response_class=HTMLResponse)
 async def scraping_jobs(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUser,
 ):
     """Render scraping jobs page."""
     return templates.TemplateResponse(
