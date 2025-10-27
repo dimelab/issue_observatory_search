@@ -330,6 +330,32 @@ class PlaywrightScraper:
             // Make automation tools less detectable
             Object.defineProperty(window, 'outerWidth', { get: () => 1440 });
             Object.defineProperty(window, 'outerHeight', { get: () => 900 });
+
+            // Canvas fingerprint randomization - adds noise to canvas to prevent fingerprinting
+            const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+            HTMLCanvasElement.prototype.toDataURL = function(type) {
+                if (type === 'image/png' && this.width > 0 && this.height > 0) {
+                    const context = this.getContext('2d');
+                    const imageData = context.getImageData(0, 0, this.width, this.height);
+                    for (let i = 0; i < imageData.data.length; i += 4) {
+                        imageData.data[i] += Math.floor(Math.random() * 10) - 5;
+                        imageData.data[i + 1] += Math.floor(Math.random() * 10) - 5;
+                        imageData.data[i + 2] += Math.floor(Math.random() * 10) - 5;
+                    }
+                    context.putImageData(imageData, 0, 0);
+                }
+                return originalToDataURL.apply(this, arguments);
+            };
+
+            // AudioContext fingerprint randomization
+            const getChannelData = AudioBuffer.prototype.getChannelData;
+            AudioBuffer.prototype.getChannelData = function() {
+                const result = getChannelData.apply(this, arguments);
+                for (let i = 0; i < result.length; i += 100) {
+                    result[i] = result[i] + Math.random() * 0.0001 - 0.00005;
+                }
+                return result;
+            };
         """)
 
         # Apply playwright-stealth for maximum stealth
@@ -452,23 +478,35 @@ class PlaywrightScraper:
                 timeout=self.timeout,
             )
 
-            # Human-like behavior: random mouse movement
+            # Human-like behavior: random mouse movement with realistic speed
             await page.mouse.move(
                 random.randint(100, 500),
-                random.randint(100, 500)
+                random.randint(100, 500),
+                steps=random.randint(10, 30)  # Gradual movement, not instant
             )
+            await page.wait_for_timeout(random.randint(100, 300))
 
-            # Wait for dynamic content to load (2-3 seconds for more human-like behavior)
-            await page.wait_for_timeout(random.randint(2000, 3000))
+            # Wait for dynamic content to load (2-4 seconds for more human-like behavior)
+            await page.wait_for_timeout(random.randint(2000, 4000))
 
-            # Simulate scrolling like a human
-            await page.evaluate("""
-                window.scrollTo({
-                    top: Math.random() * 500,
-                    behavior: 'smooth'
-                });
-            """)
-            await page.wait_for_timeout(random.randint(500, 1000))
+            # Multiple random scrolls like a human reading
+            for _ in range(random.randint(1, 3)):
+                await page.evaluate(f"""
+                    window.scrollTo({{
+                        top: Math.random() * {random.randint(300, 800)},
+                        behavior: 'smooth'
+                    }});
+                """)
+                await page.wait_for_timeout(random.randint(500, 1500))
+
+            # Random mouse movements during page load
+            for _ in range(random.randint(2, 4)):
+                await page.mouse.move(
+                    random.randint(100, 1200),
+                    random.randint(100, 700),
+                    steps=random.randint(5, 15)
+                )
+                await page.wait_for_timeout(random.randint(200, 800))
 
             # Get final URL (after redirects)
             final_url = page.url
