@@ -8,12 +8,10 @@ from passlib.context import CryptContext
 from backend.config import settings
 
 # Password hashing context
-# Configure bcrypt to automatically truncate passwords to 72 bytes
+# Note: bcrypt has a 72-byte limit, we handle truncation manually
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto",
-    bcrypt__truncate_error=False,  # Don't raise error on long passwords
-    bcrypt__max_rounds=12,          # Reasonable security/performance balance
 )
 
 
@@ -27,7 +25,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
     Returns:
         bool: True if password matches, False otherwise
+
+    Note:
+        bcrypt has a 72 byte limit. Passwords are truncated if needed.
     """
+    # Truncate to 72 bytes to comply with bcrypt limitation
+    if len(plain_password.encode('utf-8')) > 72:
+        plain_password = plain_password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
     return pwd_context.verify(plain_password, hashed_password)
 
 

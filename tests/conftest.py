@@ -47,16 +47,21 @@ async def engine():
 
 @pytest.fixture
 async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
-    """Create a new database session for a test."""
+    """Create a new database session for a test with transaction rollback."""
+    connection = await engine.connect()
+    transaction = await connection.begin()
+
     async_session = async_sessionmaker(
-        engine,
+        bind=connection,
         class_=AsyncSession,
         expire_on_commit=False,
     )
 
     async with async_session() as session:
         yield session
-        await session.rollback()
+
+    await transaction.rollback()
+    await connection.close()
 
 
 @pytest.fixture
