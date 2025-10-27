@@ -164,6 +164,9 @@ class NetworkService:
             f"sessions={session_ids}, user={user_id}"
         )
 
+        # Check if analysis is needed and trigger it
+        await self._ensure_content_analyzed(session_ids)
+
         # Build network
         builder = WebsiteNounNetworkBuilder(
             name=name,
@@ -468,6 +471,71 @@ class NetworkService:
         file_path = export_dir / filename
 
         return str(file_path)
+
+    async def _ensure_content_analyzed(self, session_ids: List[int]) -> None:
+        """
+        Ensure content from sessions is analyzed. Triggers analysis if needed.
+
+        Args:
+            session_ids: List of session IDs to check
+        """
+        from sqlalchemy import select, func
+        from backend.models.scraping import ScrapingJob
+        from backend.models.website import WebsiteContent
+        from backend.models.analysis import ExtractedNoun
+        from backend.tasks.analysis_tasks import analyze_job_task
+
+        logger.info(f"Checking if content from sessions {session_ids} is analyzed")
+
+        # Get scraping jobs for these sessions
+        stmt_jobs = (
+            select(ScrapingJob)
+            .where(ScrapingJob.session_id.in_(session_ids))
+            .where(ScrapingJob.status == "completed")
+        )
+        result = await self.session.execute(stmt_jobs)
+        jobs = result.scalars().all()
+
+        if not jobs:
+            logger.warning(f"No completed scraping jobs found for sessions {session_ids}")
+            return
+
+        # Check each job to see if it needs analysis
+        for job in jobs:
+            # Count unanalyzed content
+            stmt_unanalyzed = (
+                select(func.count(WebsiteContent.id))
+                .outerjoin(ExtractedNoun, WebsiteContent.id == ExtractedNoun.website_content_id)
+                .where(
+                    WebsiteContent.scraping_job_id == job.id,
+                    WebsiteContent.status == 'success',
+                    ExtractedNoun.id.is_(None)  # No analysis yet
+                )
+            )
+            unanalyzed_result = await self.session.execute(stmt_unanalyzed)
+            unanalyzed_count = unanalyzed_result.scalar() or 0
+
+            if unanalyzed_count > 0:
+                logger.info(
+                    f"Job {job.id} has {unanalyzed_count} unanalyzed pages. "
+                    f"Triggering analysis..."
+                )
+
+                # Queue analysis task
+                task = analyze_job_task.delay(
+                    job_id=job.id,
+                    extract_nouns=True,
+                    extract_entities=True,
+                    max_nouns=100,
+                    min_frequency=2
+                )
+
+                logger.info(f"Queued analysis task {task.id} for job {job.id}")
+
+                # Wait for analysis to complete (synchronously in the task)
+                # This blocks network generation until analysis is done
+                result = task.get(timeout=600)  # 10 minute timeout
+                logger.info(f"Analysis completed for job {job.id}: {result}")
 
     async def get_network_by_id(self, network_id: int) -> Optional[NetworkExport]:
         """
