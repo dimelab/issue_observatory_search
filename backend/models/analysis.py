@@ -1,7 +1,7 @@
 """Analysis models for storing NLP processing results."""
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, JSON, Float
+from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, JSON, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.database import Base
 
@@ -141,9 +141,9 @@ class ContentAnalysis(Base):
     )
 
     # Analysis configuration
-    extract_nouns: Mapped[bool] = mapped_column(Integer, default=True, nullable=False)
+    extract_nouns: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     extract_entities: Mapped[bool] = mapped_column(
-        Integer, default=True, nullable=False
+        Boolean, default=True, nullable=False
     )
     max_nouns: Mapped[int] = mapped_column(Integer, nullable=False)
     min_frequency: Mapped[int] = mapped_column(Integer, nullable=False)
