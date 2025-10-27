@@ -148,24 +148,35 @@ class PlaywrightScraper:
         """
         if self._browser is None:
             self._playwright = await async_playwright().start()
+
+            # Launch arguments for maximum stealth
+            launch_args = [
+                # Core anti-detection
+                "--disable-blink-features=AutomationControlled",
+
+                # Memory and performance
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+
+                # Browser behavior
+                "--disable-infobars",
+                "--disable-extensions",
+                "--disable-setuid-sandbox",
+
+                # Reduce fingerprinting
+                "--window-size=1920,1080",
+                "--start-maximized",
+
+                # Disable automation flags
+                "--disable-automation",
+                "--disable-blink-features",
+            ]
+
             self._browser = await self._playwright.chromium.launch(
                 headless=self.headless,
-                args=[
-                    # Core anti-detection
-                    "--disable-blink-features=AutomationControlled",
-
-                    # Memory and performance
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-
-                    # Additional stealth flags
-                    "--disable-web-security",
-                    "--disable-features=IsolateOrigins,site-per-process",
-
-                    # Reduce fingerprinting
-                    "--disable-gpu",
-                    "--window-size=1920,1080",
-                ]
+                args=launch_args,
+                # Use Chrome instead of Chromium if available (more realistic)
+                channel="chrome" if not self.headless else None,
             )
         return self._browser
 
@@ -196,6 +207,12 @@ class PlaywrightScraper:
             has_touch=False,
             java_script_enabled=True,
             ignore_https_errors=True,
+            # Add realistic device scale factor
+            device_scale_factor=1,
+            # Add realistic screen size (desktop)
+            screen={"width": 1920, "height": 1080},
+            # Bypass CSP for better compatibility
+            bypass_csp=True,
         )
 
         # Add realistic HTTP headers
