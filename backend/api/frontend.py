@@ -287,8 +287,9 @@ async def scraping_job(
                 "status": job.status or "pending",
                 "depth": job.depth,
                 "domain_filter": job.domain_filter,
-                "delay": job.delay,
-                "respect_robots": job.respect_robots,
+                "delay_min": job.delay_min,
+                "delay_max": job.delay_max,
+                "respect_robots_txt": job.respect_robots_txt,
                 "total_urls": job.total_urls or 0,
                 "scraped_count": scraped_count,
                 "success_count": success_count,
@@ -298,5 +299,23 @@ async def scraping_job(
                 "completed_at": job.completed_at,
                 "session": session_data,
             }
+        }
+    )
+
+
+@router.get("/networks", response_class=HTMLResponse)
+async def networks_list(
+    request: Request,
+    current_user: CurrentUser,
+):
+    """Render networks list page."""
+    return templates.TemplateResponse(
+        "networks/list.html",
+        {
+            "request": request,
+            "show_nav": True,
+            "show_footer": True,
+            "active_page": "networks",
+            "username": current_user.username,
         }
     )
