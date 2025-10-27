@@ -22,12 +22,35 @@ fi
 echo "ℹ️  Using: $DOCKER_COMPOSE"
 echo ""
 
+# Function to get PostgreSQL service name from docker-compose
+get_postgres_service() {
+    # Try 'postgres' first (most common)
+    if $DOCKER_COMPOSE ps postgres 2>/dev/null | grep -qE "Up|running"; then
+        echo "postgres"
+        return 0
+    fi
+    # Try 'db' as alternative
+    if $DOCKER_COMPOSE ps db 2>/dev/null | grep -qE "Up|running"; then
+        echo "db"
+        return 0
+    fi
+    # Return empty if not found
+    echo ""
+    return 1
+}
+
+# Get the service name
+POSTGRES_SERVICE=$(get_postgres_service)
+
 # Function to check if PostgreSQL is running and ready
 check_postgres() {
+    if [ -z "$POSTGRES_SERVICE" ]; then
+        return 1
+    fi
     # Check if container is running via docker compose
-    if $DOCKER_COMPOSE ps postgres 2>/dev/null | grep -qE "Up|running"; then
+    if $DOCKER_COMPOSE ps $POSTGRES_SERVICE 2>/dev/null | grep -qE "Up|running"; then
         # Check if it's actually ready to accept connections
-        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $DOCKER_COMPOSE exec -T $POSTGRES_SERVICE pg_isready -U postgres >/dev/null 2>&1; then
             return 0
         fi
     fi
@@ -38,7 +61,7 @@ check_postgres() {
 wait_for_postgres() {
     echo "⏳ Waiting for PostgreSQL to be ready..."
     for i in {1..30}; do
-        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $DOCKER_COMPOSE exec -T $POSTGRES_SERVICE pg_isready -U postgres >/dev/null 2>&1; then
             echo "✅ PostgreSQL is ready!"
             return 0
         fi
@@ -53,38 +76,66 @@ wait_for_postgres() {
 echo "🔍 Checking PostgreSQL status..."
 if check_postgres; then
     echo "✅ PostgreSQL is running and ready"
+    echo "   Service: $POSTGRES_SERVICE"
 else
     echo "❌ PostgreSQL not running or not ready"
     echo "🚀 Starting PostgreSQL container..."
 
-    if ! $DOCKER_COMPOSE up -d postgres; then
+    # Determine which service name to use
+    SERVICE_TO_START="postgres"
+    if [ -n "$POSTGRES_SERVICE" ]; then
+        SERVICE_TO_START="$POSTGRES_SERVICE"
+    fi
+
+    if ! $DOCKER_COMPOSE up -d $SERVICE_TO_START; then
         echo "❌ Failed to start PostgreSQL"
-        echo "   Try: $DOCKER_COMPOSE up -d postgres"
+        echo "   Try: $DOCKER_COMPOSE up -d $SERVICE_TO_START"
+        exit 1
+    fi
+
+    # Re-detect service after starting
+    POSTGRES_SERVICE=$(get_postgres_service)
+    if [ -z "$POSTGRES_SERVICE" ]; then
+        echo "❌ Started container but cannot detect service"
         exit 1
     fi
 
     # Wait for it to be ready
     if ! wait_for_postgres; then
         echo "❌ PostgreSQL started but not accepting connections"
-        echo "   Check logs: $DOCKER_COMPOSE logs postgres"
+        echo "   Check logs: $DOCKER_COMPOSE logs $POSTGRES_SERVICE"
         exit 1
     fi
 fi
 
 echo ""
 
-# Get the container name
+# Get the container name - try multiple patterns
 CONTAINER_NAME=$($DOCKER_COMPOSE ps postgres --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | cut -d'"' -f4 | head -1)
 
-# Fallback to docker ps if docker-compose ps doesn't work
+# Fallback 1: Try common postgres container name patterns
 if [ -z "$CONTAINER_NAME" ]; then
     CONTAINER_NAME=$(docker ps --filter "name=postgres" --format "{{.Names}}" | head -1)
 fi
 
+# Fallback 2: Try 'db' container (common alternative name)
 if [ -z "$CONTAINER_NAME" ]; then
-    echo "❌ Could not find PostgreSQL container name"
+    CONTAINER_NAME=$(docker ps --filter "name=db" --format "{{.Names}}" | head -1)
+fi
+
+# Fallback 3: Try to find any PostgreSQL container by checking the image
+if [ -z "$CONTAINER_NAME" ]; then
+    CONTAINER_NAME=$(docker ps --filter "ancestor=postgres" --format "{{.Names}}" | head -1)
+fi
+
+if [ -z "$CONTAINER_NAME" ]; then
+    echo "❌ Could not find PostgreSQL container"
+    echo ""
     echo "   Available containers:"
-    docker ps --format "   - {{.Names}}"
+    docker ps --format "   - {{.Names}} ({{.Image}})"
+    echo ""
+    echo "   Looking for containers named 'postgres', 'db', or using postgres image"
+    echo "   Please check your docker-compose.yml service name"
     exit 1
 fi
 
