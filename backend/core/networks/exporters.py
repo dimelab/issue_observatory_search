@@ -41,6 +41,9 @@ def export_to_gexf(
     # Create a copy to avoid modifying the original
     export_graph = graph.copy()
 
+    # Clean None values from attributes (GEXF doesn't support them)
+    _clean_none_values(export_graph)
+
     # Calculate and add visual attributes
     _add_visual_attributes(
         export_graph,
@@ -74,6 +77,37 @@ def export_to_gexf(
     )
 
     return stats
+
+
+def _clean_none_values(graph: nx.Graph) -> None:
+    """
+    Remove None values from node and edge attributes.
+
+    GEXF format doesn't support None values, so we need to remove them
+    or replace them with empty strings.
+
+    Args:
+        graph: NetworkX graph (modified in place)
+    """
+    # Clean node attributes
+    for node in graph.nodes():
+        attrs_to_remove = []
+        for key, value in graph.nodes[node].items():
+            if value is None:
+                attrs_to_remove.append(key)
+
+        for key in attrs_to_remove:
+            del graph.nodes[node][key]
+
+    # Clean edge attributes
+    for u, v in graph.edges():
+        attrs_to_remove = []
+        for key, value in graph.edges[u, v].items():
+            if value is None:
+                attrs_to_remove.append(key)
+
+        for key in attrs_to_remove:
+            del graph.edges[u, v][key]
 
 
 def _add_visual_attributes(
