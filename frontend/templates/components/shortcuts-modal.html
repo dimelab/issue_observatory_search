@@ -7,7 +7,6 @@
 -->
 
 <div x-data="{ open: false }"
-     @keydown.window.prevent.shift="if($event.key === '?') open = !open"
      x-init="window.showShortcutsModal = () => open = true"
      x-cloak>
 
