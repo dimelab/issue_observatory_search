@@ -175,8 +175,8 @@ class PlaywrightScraper:
             self._browser = await self._playwright.chromium.launch(
                 headless=self.headless,
                 args=launch_args,
-                # Use Chrome instead of Chromium if available (more realistic)
-                channel="chrome" if not self.headless else None,
+                # Use Chrome if available, otherwise fall back to Chromium
+                # channel="chrome" if not self.headless else None,  # Disabled - Chrome not installed
             )
         return self._browser
 
