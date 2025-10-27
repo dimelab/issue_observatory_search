@@ -28,7 +28,13 @@ async def get_async_session() -> AsyncSession:
     return AsyncSessionLocal()
 
 
-@celery_app.task(bind=True, name="scrape_session", max_retries=0)
+@celery_app.task(
+    bind=True,
+    name="scrape_session",
+    max_retries=0,
+    soft_time_limit=7200,  # 2 hours soft limit
+    time_limit=10800,  # 3 hours hard limit
+)
 def scrape_session_task(self, job_id: int) -> dict:
     """
     Main task to orchestrate scraping for a search session.
