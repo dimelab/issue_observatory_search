@@ -7,6 +7,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
 from playwright_stealth import Stealth
+import httpx
 
 from backend.utils.robots import RobotsChecker
 from backend.utils.content_extraction import (
@@ -449,6 +450,43 @@ class PlaywrightScraper:
 
         return any(indicator in html_lower for indicator in rate_limit_indicators)
 
+    async def _try_simple_http(self, url: str) -> Optional[tuple[str, int]]:
+        """
+        Try simple HTTP request first (faster and works for many sites).
+
+        Args:
+            url: URL to fetch
+
+        Returns:
+            Tuple of (html_content, status_code) if successful, None otherwise
+        """
+        try:
+            async with httpx.AsyncClient(
+                timeout=30.0,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": self.user_agent,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
+                }
+            ) as client:
+                response = await client.get(url)
+
+                # Check if response looks like a CAPTCHA page
+                if self._is_captcha_page(response.text, url):
+                    logger.info(f"Simple HTTP got CAPTCHA for {url}, will try Playwright")
+                    return None
+
+                # Success!
+                logger.info(f"Simple HTTP succeeded for {url}")
+                return (response.text, response.status_code)
+
+        except Exception as e:
+            logger.debug(f"Simple HTTP failed for {url}: {e}, will try Playwright")
+            return None
+
     async def _scrape_with_retry(
         self,
         url: str,
@@ -468,6 +506,41 @@ class PlaywrightScraper:
         start_time = datetime.utcnow()
 
         try:
+            # Try simple HTTP request first (faster and works for many sites)
+            simple_result = await self._try_simple_http(url)
+
+            if simple_result:
+                # Simple HTTP worked! Extract content and return
+                html_content, http_status_code = simple_result
+
+                # Extract content
+                extracted_text = extract_text(html_content)
+                title = extract_title(html_content)
+                meta_description = extract_meta_description(html_content)
+                outbound_links = extract_links(html_content, url)
+                language = detect_language(extracted_text)
+                word_count = count_words(extracted_text)
+
+                duration = (datetime.utcnow() - start_time).total_seconds()
+
+                return ScrapingResult(
+                    url=url,
+                    status="success",
+                    html_content=html_content,
+                    extracted_text=extracted_text,
+                    title=title,
+                    meta_description=meta_description,
+                    language=language,
+                    word_count=word_count,
+                    outbound_links=outbound_links,
+                    http_status_code=http_status_code,
+                    final_url=url,
+                    duration=duration,
+                )
+
+            # Simple HTTP didn't work, fall back to Playwright
+            logger.info(f"Using Playwright for {url}")
+
             # Create new page
             page = await self._create_page()
 
