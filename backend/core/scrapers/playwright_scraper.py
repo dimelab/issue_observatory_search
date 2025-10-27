@@ -237,9 +237,17 @@ class PlaywrightScraper:
                 get: () => undefined
             });
 
-            // Override plugins to avoid headless detection
+            // Override plugins to avoid headless detection - make more realistic
             Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
+                get: () => {
+                    const plugins = [
+                        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+                        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+                    ];
+                    plugins.length = 3;
+                    return plugins;
+                }
             });
 
             // Override languages to match user's laptop
@@ -264,12 +272,36 @@ class PlaywrightScraper:
                 get: () => 'Google Inc.'
             });
 
-            // Chrome specific properties
+            // More realistic Chrome object
             window.chrome = {
-                runtime: {}
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
             };
 
-            // Permissions API
+            // Override the toString methods to hide we're changing them
+            Object.defineProperty(navigator.plugins.toString, 'toString', {
+                value: function() { return 'function toString() { [native code] }' }
+            });
+
+            // WebGL vendor
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Intel Inc.';
+                if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+                return getParameter.apply(this, arguments);
+            };
+
+            // Battery API - real Macs don't expose this easily
+            Object.defineProperty(navigator, 'getBattery', {
+                get: () => undefined
+            });
+
+            // WebDriver in deeper places
+            delete Object.getPrototypeOf(navigator).webdriver;
+
+            // Notification permissions
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
                 parameters.name === 'notifications' ?
@@ -277,8 +309,26 @@ class PlaywrightScraper:
                     originalQuery(parameters)
             );
 
-            // Remove automation-specific properties
-            delete navigator.__proto__.webdriver;
+            // Connection API - make it look like WiFi
+            Object.defineProperty(navigator, 'connection', {
+                get: () => ({
+                    effectiveType: '4g',
+                    rtt: 50,
+                    downlink: 10,
+                    saveData: false
+                })
+            });
+
+            // Mouse movements - add some randomness
+            let lastMouseX = 0, lastMouseY = 0;
+            document.addEventListener('mousemove', (e) => {
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            });
+
+            // Make automation tools less detectable
+            Object.defineProperty(window, 'outerWidth', { get: () => 1440 });
+            Object.defineProperty(window, 'outerHeight', { get: () => 900 });
         """)
 
         return page
@@ -397,8 +447,23 @@ class PlaywrightScraper:
                 timeout=self.timeout,
             )
 
+            # Human-like behavior: random mouse movement
+            await page.mouse.move(
+                random.randint(100, 500),
+                random.randint(100, 500)
+            )
+
             # Wait for dynamic content to load (2-3 seconds for more human-like behavior)
             await page.wait_for_timeout(random.randint(2000, 3000))
+
+            # Simulate scrolling like a human
+            await page.evaluate("""
+                window.scrollTo({
+                    top: Math.random() * 500,
+                    behavior: 'smooth'
+                });
+            """)
+            await page.wait_for_timeout(random.randint(500, 1000))
 
             # Get final URL (after redirects)
             final_url = page.url
