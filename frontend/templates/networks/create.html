@@ -329,6 +329,8 @@
                         payload.aggregate_by_domain = this.config.aggregate_by_domain;
                     }
 
+                    console.log('Generating network with payload:', payload);
+
                     const response = await fetch('/api/networks/generate', {
                         method: 'POST',
                         headers: {
@@ -338,9 +340,12 @@
                         body: JSON.stringify(payload)
                     });
 
+                    console.log('Response status:', response.status);
+
                     if (response.ok) {
                         const result = await response.json();
-                        showToast('Network generation started!', 'success');
+                        console.log('Network generation result:', result);
+                        showToast('Network generation started! Task ID: ' + result.task_id, 'success');
 
                         // Redirect to networks list
                         setTimeout(() => {
@@ -348,11 +353,12 @@
                         }, 1500);
                     } else {
                         const error = await response.json();
+                        console.error('Network generation failed:', error);
                         showToast(error.detail || 'Failed to generate network', 'error');
                     }
                 } catch (error) {
                     console.error('Error generating network:', error);
-                    showToast('Error generating network', 'error');
+                    showToast('Error generating network: ' + error.message, 'error');
                 } finally {
                     this.generating = false;
                 }
