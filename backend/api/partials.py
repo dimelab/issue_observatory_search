@@ -8,8 +8,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
-from backend.models import User, SearchSession, SearchQuery, SearchResult, ScrapingJob, ScrapedContent
-from backend.api.auth import get_current_user
+from backend.models import User, SearchSession, SearchQuery, SearchResult, ScrapingJob
+from backend.models.website import WebsiteContent
+from backend.utils.dependencies import CurrentUser
+from urllib.parse import urlparse
 from backend.api.frontend import format_datetime, format_number
 
 router = APIRouter()
@@ -24,7 +26,7 @@ templates.env.filters["format_number"] = format_number
 async def get_sessions_partial(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Get search sessions list as HTML partial."""
@@ -98,7 +100,7 @@ async def get_sessions_partial(
 @router.get("/api/search/queries/{query_id}/results", response_class=HTMLResponse)
 async def get_query_results_partial(
     query_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Get search results for a query as HTML partial."""
@@ -123,7 +125,7 @@ async def get_query_results_partial(
     results_result = await db.execute(
         select(SearchResult)
         .where(SearchResult.query_id == query_id)
-        .order_by(SearchResult.position)
+        .order_by(SearchResult.rank)
     )
     results = results_result.scalars().all()
 
@@ -135,8 +137,8 @@ async def get_query_results_partial(
             "url": result.url,
             "description": result.description,
             "domain": result.domain,
-            "position": result.position,
-            "is_scraped": result.scraped_content_id is not None,
+            "position": result.rank,
+            "is_scraped": result.scraped is not None,
         })
 
     return templates.TemplateResponse(
@@ -152,7 +154,7 @@ async def get_jobs_partial(
     status_filter: Optional[str] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Get scraping jobs list as HTML partial."""
@@ -186,26 +188,26 @@ async def get_jobs_partial(
 
         # Get scraped content count
         scraped_count_result = await db.execute(
-            select(func.count(ScrapedContent.id)).where(ScrapedContent.job_id == job.id)
+            select(func.count(WebsiteContent.id)).where(WebsiteContent.scraping_job_id == job.id)
         )
         scraped_count = scraped_count_result.scalar() or 0
 
         # Get success count
         success_count_result = await db.execute(
-            select(func.count(ScrapedContent.id))
+            select(func.count(WebsiteContent.id))
             .where(
-                ScrapedContent.job_id == job.id,
-                ScrapedContent.status == "success"
+                WebsiteContent.scraping_job_id == job.id,
+                WebsiteContent.status == "success"
             )
         )
         success_count = success_count_result.scalar() or 0
 
         # Get failed count
         failed_count_result = await db.execute(
-            select(func.count(ScrapedContent.id))
+            select(func.count(WebsiteContent.id))
             .where(
-                ScrapedContent.job_id == job.id,
-                ScrapedContent.status == "failed"
+                WebsiteContent.scraping_job_id == job.id,
+                WebsiteContent.status == "failed"
             )
         )
         failed_count = failed_count_result.scalar() or 0
@@ -238,7 +240,7 @@ async def get_job_content_partial(
     job_id: int,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Get scraped content for a job as HTML partial."""
@@ -262,15 +264,15 @@ async def get_job_content_partial(
 
     # Get total count
     count_result = await db.execute(
-        select(func.count(ScrapedContent.id)).where(ScrapedContent.job_id == job_id)
+        select(func.count(WebsiteContent.id)).where(WebsiteContent.scraping_job_id == job_id)
     )
     total = count_result.scalar() or 0
 
     # Get scraped content
     content_result = await db.execute(
-        select(ScrapedContent)
-        .where(ScrapedContent.job_id == job_id)
-        .order_by(ScrapedContent.scraped_at.desc())
+        select(WebsiteContent)
+        .where(WebsiteContent.scraping_job_id == job_id)
+        .order_by(WebsiteContent.scraped_at.desc())
         .offset(offset)
         .limit(per_page)
     )
@@ -282,11 +284,11 @@ async def get_job_content_partial(
             "id": item.id,
             "url": item.url,
             "title": item.title,
-            "domain": item.domain,
+            "domain": urlparse(item.url).netloc,
             "status": item.status,
             "word_count": item.word_count,
             "language": item.language,
-            "description": item.description,
+            "description": item.meta_description,
             "scraped_at": item.scraped_at,
             "error_message": item.error_message,
         })

@@ -8,8 +8,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
-from backend.models import User, SearchSession, SearchQuery, SearchResult, ScrapingJob, ScrapedContent
-from backend.api.auth import get_current_user
+from backend.models import User, SearchSession, SearchQuery, SearchResult, ScrapingJob
+from backend.models.website import WebsiteContent
+from backend.utils.dependencies import CurrentUser
 from sqlalchemy import select, func
 
 router = APIRouter()
@@ -72,7 +73,7 @@ async def login_page(request: Request):
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Render dashboard page."""
@@ -110,7 +111,7 @@ async def new_search(
 async def search_session(
     request: Request,
     session_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Render search session details page."""
@@ -215,7 +216,7 @@ async def scraping_jobs(
 async def scraping_job(
     request: Request,
     job_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """Render scraping job details page."""
@@ -249,25 +250,25 @@ async def scraping_job(
 
     # Get scraped content count
     scraped_count_result = await db.execute(
-        select(func.count(ScrapedContent.id)).where(ScrapedContent.job_id == job_id)
+        select(func.count(WebsiteContent.id)).where(WebsiteContent.scraping_job_id == job_id)
     )
     scraped_count = scraped_count_result.scalar() or 0
 
     # Get success/failed counts
     success_count_result = await db.execute(
-        select(func.count(ScrapedContent.id))
+        select(func.count(WebsiteContent.id))
         .where(
-            ScrapedContent.job_id == job_id,
-            ScrapedContent.status == "success"
+            WebsiteContent.scraping_job_id == job_id,
+            WebsiteContent.status == "success"
         )
     )
     success_count = success_count_result.scalar() or 0
 
     failed_count_result = await db.execute(
-        select(func.count(ScrapedContent.id))
+        select(func.count(WebsiteContent.id))
         .where(
-            ScrapedContent.job_id == job_id,
-            ScrapedContent.status == "failed"
+            WebsiteContent.scraping_job_id == job_id,
+            WebsiteContent.status == "failed"
         )
     )
     failed_count = failed_count_result.scalar() or 0

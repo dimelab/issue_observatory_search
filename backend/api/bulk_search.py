@@ -10,7 +10,7 @@ from sqlalchemy import select
 from backend.database import get_db
 from backend.models.user import User
 from backend.models.bulk_search import BulkSearchUpload, BulkSearchRow
-from backend.api.dependencies import get_current_user
+from backend.utils.dependencies import CurrentUser
 from backend.schemas.advanced_search import (
     BulkSearchValidationResponse,
     BulkSearchExecuteRequest,
@@ -28,7 +28,7 @@ async def upload_bulk_search_csv(
     file: UploadFile = File(...),
     validate_only: bool = True,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Upload and validate a bulk search CSV file.
@@ -197,7 +197,7 @@ async def execute_bulk_search(
     upload_id: int,
     request: BulkSearchExecuteRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Execute a validated bulk search upload.
@@ -262,7 +262,7 @@ async def execute_bulk_search(
 async def get_bulk_search_status(
     task_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Get status of a bulk search task.
@@ -332,7 +332,7 @@ async def get_bulk_search_status(
 async def get_bulk_search_results(
     upload_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Get results summary for a completed bulk search.

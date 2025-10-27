@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from celery import Task
 
 from backend.celery_app import celery_app
-from backend.database import async_session
+from backend.database import AsyncSessionLocal
 from backend.services.network_service import NetworkService
 from backend.schemas.network import NetworkBackboningConfig
 from backend.config import settings
@@ -67,7 +67,7 @@ def generate_network_task(
     )
 
     async def _generate():
-        async with async_session() as session:
+        async with AsyncSessionLocal() as session:
             service = NetworkService(session)
 
             try:
@@ -196,7 +196,7 @@ def cleanup_old_networks_task(days: Optional[int] = None) -> Dict[str, Any]:
     logger.info(f"Starting cleanup of networks older than {days} days")
 
     async def _cleanup():
-        async with async_session() as session:
+        async with AsyncSessionLocal() as session:
             service = NetworkService(session)
             deleted_count = await service.cleanup_old_networks(days=days)
             return {"deleted_count": deleted_count, "days": days}
@@ -228,7 +228,7 @@ def recalculate_network_statistics_task(network_id: int) -> Dict[str, Any]:
     logger.info(f"Recalculating statistics for network {network_id}")
 
     async def _recalculate():
-        async with async_session() as session:
+        async with AsyncSessionLocal() as session:
             service = NetworkService(session)
 
             # Get network

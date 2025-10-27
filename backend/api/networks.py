@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
-from backend.api.auth import get_current_user
+from backend.utils.dependencies import CurrentUser
 from backend.models.user import User
 from backend.services.network_service import NetworkService
 from backend.schemas.network import (
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/networks", tags=["networks"])
 )
 async def generate_network(
     request: NetworkGenerateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -103,7 +103,7 @@ async def list_networks(
     per_page: int = Query(20, ge=1, le=100, description="Results per page"),
     type: Optional[str] = Query(None, description="Filter by network type"),
     session_id: Optional[int] = Query(None, description="Filter by session ID"),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -137,7 +137,7 @@ async def list_networks(
 )
 async def get_network(
     network_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -173,7 +173,7 @@ async def get_network(
 )
 async def download_network(
     network_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -223,7 +223,7 @@ async def download_network(
 )
 async def get_network_statistics(
     network_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -276,7 +276,7 @@ async def get_network_statistics(
 )
 async def delete_network(
     network_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """

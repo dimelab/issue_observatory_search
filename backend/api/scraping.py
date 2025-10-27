@@ -17,7 +17,7 @@ from backend.schemas.scraping import (
     ScrapingJobStatus,
     ScrapingError,
 )
-from backend.utils.dependencies import get_current_user
+from backend.utils.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/scraping", tags=["scraping"])
 async def create_scraping_job(
     job_data: ScrapingJobCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> ScrapingJobResponse:
     """
     Create a new scraping job.
@@ -94,7 +94,7 @@ async def create_scraping_job(
 async def start_scraping_job(
     job_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> ScrapingJobResponse:
     """
     Start a scraping job.
@@ -141,7 +141,7 @@ async def start_scraping_job(
 async def get_scraping_job(
     job_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> ScrapingJobResponse:
     """
     Get a scraping job by ID.
@@ -181,7 +181,7 @@ async def list_scraping_jobs(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> ScrapingJobList:
     """
     List scraping jobs.
@@ -223,7 +223,7 @@ async def list_scraping_jobs(
 async def get_job_statistics(
     job_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> ScrapingJobStatistics:
     """
     Get job statistics.
@@ -262,7 +262,7 @@ async def get_job_content(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> WebsiteContentList:
     """
     Get scraped content for a job.
@@ -302,7 +302,7 @@ async def get_job_content(
 async def get_website_content(
     content_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> WebsiteContentResponse:
     """
     Get website content by ID.
@@ -339,7 +339,7 @@ async def get_website_content(
 async def cancel_scraping_job(
     job_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> ScrapingJobStatus:
     """
     Cancel a scraping job.
@@ -389,7 +389,7 @@ async def cancel_scraping_job(
 async def delete_scraping_job(
     job_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ) -> None:
     """
     Delete a scraping job.

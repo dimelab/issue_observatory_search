@@ -9,7 +9,7 @@ from backend.database import get_db
 from backend.models.user import User
 from backend.models.query_expansion import QueryExpansionCandidate
 from backend.models.query_template import QueryTemplate, QueryFromTemplate
-from backend.api.dependencies import get_current_user
+from backend.utils.dependencies import CurrentUser
 from backend.schemas.advanced_search import (
     QueryExpansionRequest,
     QueryExpansionResponse,
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 async def generate_query_expansions(
     request: QueryExpansionRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Generate query expansion candidates from a session.
@@ -107,7 +107,7 @@ async def generate_query_expansions(
 async def approve_expansion_candidates(
     request: ApproveExpansionRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Approve or reject expansion candidates.
@@ -155,7 +155,7 @@ async def approve_expansion_candidates(
 async def execute_approved_expansions(
     request: ExecuteExpansionRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Execute searches for approved expansion candidates.
@@ -230,7 +230,7 @@ async def list_query_templates(
     framing_type: str = Query(None, description="Framing type filter"),
     include_public: bool = Query(True, description="Include public templates"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     List available query templates.
@@ -269,7 +269,7 @@ async def list_query_templates(
 async def create_query_template(
     template: QueryTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Create a custom query template.
@@ -312,7 +312,7 @@ async def apply_query_template(
     template_id: int,
     request: ApplyTemplateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Apply a query template with variable substitutions.
@@ -390,7 +390,7 @@ async def apply_query_template(
 async def generate_multi_perspective_search(
     request: MultiPerspectiveRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Generate and execute multi-perspective search queries.
@@ -467,7 +467,7 @@ async def generate_multi_perspective_search(
 async def compare_sessions(
     request: SessionComparisonRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Compare multiple search sessions.
@@ -502,7 +502,7 @@ async def compare_sessions(
 async def execute_temporal_search(
     request: TemporalSearchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Execute search with date range filtering.
@@ -548,7 +548,7 @@ async def execute_temporal_search(
 async def compare_time_periods(
     request: TemporalComparisonRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
     Compare search results across multiple time periods.
