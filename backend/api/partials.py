@@ -99,6 +99,7 @@ async def get_sessions_partial(
 
 @router.get("/api/search/queries/{query_id}/results", response_class=HTMLResponse)
 async def get_query_results_partial(
+    request: Request,
     query_id: int,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
@@ -144,6 +145,7 @@ async def get_query_results_partial(
     return templates.TemplateResponse(
         "partials/query_results.html",
         {
+            "request": request,
             "results": results_data,
         }
     )
