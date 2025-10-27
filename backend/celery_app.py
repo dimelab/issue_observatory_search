@@ -14,6 +14,7 @@ celery_app = Celery(
     include=[
         "backend.tasks.scraping_tasks",
         "backend.tasks.analysis_tasks",
+        "backend.tasks.network_tasks",
     ],
 )
 
