@@ -157,12 +157,17 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
                 website_node_id = self._sanitize_node_id(f"website_{content.url}")
 
                 if website_node_id not in websites_seen:
+                    # Extract domain from URL
+                    from urllib.parse import urlparse
+                    parsed = urlparse(content.url)
+                    domain = parsed.netloc or parsed.path.split('/')[0]
+
                     self.add_node(
                         website_node_id,
                         node_type="website",
                         label=content.url,
                         url=content.url,
-                        domain=content.website.domain if content.website else None,
+                        domain=domain,
                         title=content.title,
                     )
                     websites_seen.add(website_node_id)
@@ -280,10 +285,14 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
         Returns:
             Dictionary mapping domain to list of aggregated noun data
         """
+        from urllib.parse import urlparse
+
         # Group contents by domain
         domain_content_ids = defaultdict(list)
         for content in contents:
-            domain = content.website.domain if content.website else content.url
+            # Extract domain from URL
+            parsed = urlparse(content.url)
+            domain = parsed.netloc or parsed.path.split('/')[0]
             domain_content_ids[domain].append(content.id)
 
         # Load and aggregate nouns for each domain
