@@ -121,12 +121,11 @@ class PlaywrightScraper:
         self.respect_robots_txt = respect_robots_txt
         self.headless = headless
 
-        # Default user agent (recent Chrome on Windows - more common than Mac)
-        # Updated to latest stable Chrome version for better compatibility
+        # Use user's actual laptop user agent for better success rate
         self.user_agent = user_agent or (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
+            "Chrome/140.0.0.0 Safari/537.36"
         )
 
         # Initialize robots checker
@@ -200,17 +199,17 @@ class PlaywrightScraper:
         browser = await self._ensure_browser()
         context = await browser.new_context(
             user_agent=self.user_agent,
-            viewport={"width": 1920, "height": 1080},
+            viewport={"width": 1440, "height": 900},
             locale="en-US",
             timezone_id="America/New_York",
-            # Additional stealth settings
+            # Additional stealth settings matching user's laptop
             has_touch=False,
             java_script_enabled=True,
             ignore_https_errors=True,
-            # Add realistic device scale factor
-            device_scale_factor=1,
-            # Add realistic screen size (desktop)
-            screen={"width": 1920, "height": 1080},
+            # Match user's laptop screen specs
+            device_scale_factor=2,  # Retina display
+            screen={"width": 1440, "height": 900},
+            color_scheme="light",
             # Bypass CSP for better compatibility
             bypass_csp=True,
         )
@@ -231,7 +230,7 @@ class PlaywrightScraper:
 
         page = await context.new_page()
 
-        # Comprehensive anti-detection script
+        # Comprehensive anti-detection script matching user's laptop
         await page.add_init_script("""
             // Remove webdriver property
             Object.defineProperty(navigator, 'webdriver', {
@@ -243,9 +242,26 @@ class PlaywrightScraper:
                 get: () => [1, 2, 3, 4, 5]
             });
 
-            // Override languages
+            // Override languages to match user's laptop
             Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US', 'en']
+                get: () => ['en-US']
+            });
+
+            // Match user's laptop hardware specs
+            Object.defineProperty(navigator, 'hardwareConcurrency', {
+                get: () => 8
+            });
+
+            Object.defineProperty(navigator, 'deviceMemory', {
+                get: () => 8
+            });
+
+            Object.defineProperty(navigator, 'platform', {
+                get: () => 'MacIntel'
+            });
+
+            Object.defineProperty(navigator, 'vendor', {
+                get: () => 'Google Inc.'
             });
 
             // Chrome specific properties
