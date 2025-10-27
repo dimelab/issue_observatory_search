@@ -474,7 +474,7 @@ class NetworkService:
 
     async def _ensure_content_analyzed(self, session_ids: List[int]) -> None:
         """
-        Ensure content from sessions is analyzed. Triggers analysis if needed.
+        Ensure content from sessions is analyzed. Runs analysis inline if needed.
 
         Args:
             session_ids: List of session IDs to check
@@ -483,7 +483,7 @@ class NetworkService:
         from backend.models.scraping import ScrapingJob
         from backend.models.website import WebsiteContent
         from backend.models.analysis import ExtractedNoun
-        from backend.tasks.analysis_tasks import analyze_job_task
+        from backend.services.analysis_service import AnalysisService
 
         logger.info(f"Checking if content from sessions {session_ids} is analyzed")
 
@@ -500,11 +500,13 @@ class NetworkService:
             logger.warning(f"No completed scraping jobs found for sessions {session_ids}")
             return
 
+        analysis_service = AnalysisService(self.session)
+
         # Check each job to see if it needs analysis
         for job in jobs:
-            # Count unanalyzed content
+            # Get unanalyzed content IDs
             stmt_unanalyzed = (
-                select(func.count(WebsiteContent.id))
+                select(WebsiteContent.id)
                 .outerjoin(ExtractedNoun, WebsiteContent.id == ExtractedNoun.website_content_id)
                 .where(
                     WebsiteContent.scraping_job_id == job.id,
@@ -513,29 +515,31 @@ class NetworkService:
                 )
             )
             unanalyzed_result = await self.session.execute(stmt_unanalyzed)
-            unanalyzed_count = unanalyzed_result.scalar() or 0
+            unanalyzed_ids = [row[0] for row in unanalyzed_result.all()]
 
-            if unanalyzed_count > 0:
+            if unanalyzed_ids:
                 logger.info(
-                    f"Job {job.id} has {unanalyzed_count} unanalyzed pages. "
-                    f"Triggering analysis..."
+                    f"Job {job.id} has {len(unanalyzed_ids)} unanalyzed pages. "
+                    f"Running analysis inline..."
                 )
 
-                # Queue analysis task
-                task = analyze_job_task.delay(
-                    job_id=job.id,
-                    extract_nouns=True,
-                    extract_entities=True,
-                    max_nouns=100,
-                    min_frequency=2
-                )
+                # Analyze each piece of content inline (not as separate tasks)
+                for content_id in unanalyzed_ids:
+                    try:
+                        await analysis_service.analyze_content(
+                            content_id=content_id,
+                            extract_nouns=True,
+                            extract_entities=True,
+                            max_nouns=100,
+                            min_frequency=2
+                        )
+                        logger.debug(f"Analyzed content {content_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to analyze content {content_id}: {e}")
 
-                logger.info(f"Queued analysis task {task.id} for job {job.id}")
-
-                # Wait for analysis to complete (synchronously in the task)
-                # This blocks network generation until analysis is done
-                result = task.get(timeout=600)  # 10 minute timeout
-                logger.info(f"Analysis completed for job {job.id}: {result}")
+                # Commit all analysis results
+                await self.session.commit()
+                logger.info(f"Completed analysis for {len(unanalyzed_ids)} pages from job {job.id}")
 
     async def get_network_by_id(self, network_id: int) -> Optional[NetworkExport]:
         """
