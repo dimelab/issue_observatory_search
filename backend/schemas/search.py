@@ -19,6 +19,8 @@ class SearchExecuteRequest(BaseModel):
     queries: list[str] = Field(..., min_items=1, max_items=50, description="List of search queries")
     search_engine: str = Field("google_custom", description="Search engine to use")
     max_results: int = Field(10, ge=1, le=100, description="Maximum results per query")
+    language: str = Field("da", description="Language code (hl parameter) - defaults to Danish")
+    country: str = Field("dk", description="Country code (gl parameter) - defaults to Denmark")
     allowed_domains: Optional[list[str]] = Field(None, description="Optional list of allowed domain TLDs")
     auto_scrape: bool = Field(False, description="Automatically start scraping after search")
     scrape_config: Optional[ScrapeConfig] = Field(None, description="Scraping configuration if auto_scrape is true")

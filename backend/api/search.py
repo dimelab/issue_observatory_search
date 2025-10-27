@@ -53,6 +53,8 @@ async def execute_search(
             config={
                 "search_engine": request.search_engine,
                 "max_results": request.max_results,
+                "language": request.language,
+                "country": request.country,
                 "allowed_domains": request.allowed_domains,
                 "auto_scrape": request.auto_scrape,
                 "scrape_config": request.scrape_config.model_dump() if request.scrape_config else None,
@@ -65,6 +67,8 @@ async def execute_search(
             queries=request.queries,
             search_engine=request.search_engine,
             max_results=request.max_results,
+            language=request.language,
+            country=request.country,
             allowed_domains=request.allowed_domains
         )
 

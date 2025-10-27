@@ -68,6 +68,8 @@ class SearchService:
         queries: list[str],
         search_engine: str,
         max_results: int,
+        language: str = "da",
+        country: str = "dk",
         allowed_domains: Optional[list[str]] = None
     ) -> SearchSession:
         """
@@ -78,6 +80,8 @@ class SearchService:
             queries: List of query strings
             search_engine: Search engine name
             max_results: Max results per query
+            language: Language code (hl parameter)
+            country: Country code (gl parameter)
             allowed_domains: Optional domain filter
 
         Returns:
@@ -101,6 +105,8 @@ class SearchService:
                     query_text=query_text,
                     engine=engine,
                     max_results=max_results,
+                    language=language,
+                    country=country,
                     allowed_domains=allowed_domains,
                     seen_urls=seen_urls
                 )
@@ -130,6 +136,8 @@ class SearchService:
         query_text: str,
         engine,
         max_results: int,
+        language: str,
+        country: str,
         allowed_domains: Optional[list[str]],
         seen_urls: set[str]
     ) -> SearchQuery:
@@ -141,6 +149,8 @@ class SearchService:
             query_text: Query string
             engine: Search engine instance
             max_results: Max results
+            language: Language code (hl parameter)
+            country: Country code (gl parameter)
             allowed_domains: Optional domain filter
             seen_urls: Set of already seen URLs for deduplication
 
@@ -160,8 +170,13 @@ class SearchService:
         await self.db.flush()
 
         try:
-            # Execute search
-            results = await engine.search(query=query_text, max_results=max_results)
+            # Execute search with language and country parameters
+            results = await engine.search(
+                query=query_text,
+                max_results=max_results,
+                hl=language,
+                gl=country
+            )
 
             # Filter by allowed domains if specified
             if allowed_domains:

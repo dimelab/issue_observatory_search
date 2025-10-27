@@ -99,16 +99,16 @@ class SerperSearch(SearchEngineBase):
         **kwargs
     ) -> list[SearchResult]:
         """
-        Execute a search query using Serper API.
+        Execute a search query using Serper API with pagination.
 
         Args:
             query: Search query string
             max_results: Maximum number of results to return (up to 100)
             **kwargs: Additional search parameters:
-                - location: Geographic location (e.g., "United States")
-                - gl: Country code (e.g., "us")
-                - hl: Language code (e.g., "en")
-                - num: Number of results per page (default: 10, max: 100)
+                - location: Geographic location (e.g., "Denmark")
+                - gl: Country code (e.g., "dk" - defaults to Denmark)
+                - hl: Language code (e.g., "da" - defaults to Danish)
+                - num: Number of results per page (default: 10, max: 10)
 
         Returns:
             list[SearchResult]: List of search results
@@ -124,20 +124,15 @@ class SerperSearch(SearchEngineBase):
             )
             max_results = self.max_results_limit
 
-        # Build request payload
-        payload = {
-            "q": query,
-            "num": max_results,  # Serper supports up to 100 results in one request
-        }
+        # Set Danish defaults
+        gl = kwargs.get("gl", "dk")  # Default to Denmark
+        hl = kwargs.get("hl", "da")  # Default to Danish
 
-        # Add optional parameters
-        if "location" in kwargs:
-            payload["location"] = kwargs["location"]
-        if "gl" in kwargs:
-            payload["gl"] = kwargs["gl"]
-        if "hl" in kwargs:
-            payload["hl"] = kwargs["hl"]
+        # Serper returns max 10 results per page, so we need to paginate
+        results_per_page = 10
+        pages_needed = (max_results + results_per_page - 1) // results_per_page  # Ceiling division
 
+        all_results = []
         headers = {
             "X-API-KEY": self.api_key,
             "Content-Type": "application/json",
@@ -145,61 +140,87 @@ class SerperSearch(SearchEngineBase):
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    self.API_URL,
-                    json=payload,
-                    headers=headers,
-                )
+                for page in range(1, pages_needed + 1):
+                    # Build request payload for this page
+                    payload = {
+                        "q": query,
+                        "num": results_per_page,
+                        "page": page,
+                        "gl": gl,
+                        "hl": hl,
+                    }
 
-                # Handle rate limiting
-                if response.status_code == 429:
-                    error_msg = "Serper API rate limit exceeded"
-                    logger.error(error_msg)
-                    raise SearchEngineRateLimitError(error_msg)
+                    # Add optional location parameter
+                    if "location" in kwargs:
+                        payload["location"] = kwargs["location"]
 
-                # Handle authentication errors
-                if response.status_code == 401:
-                    error_msg = "Invalid Serper API key"
-                    logger.error(error_msg)
-                    raise SearchEngineAPIError(error_msg)
+                    logger.debug(f"Fetching page {page}/{pages_needed} for query: {query}")
 
-                # Handle other errors
-                if response.status_code != 200:
-                    error_msg = f"Serper API request failed with status {response.status_code}"
-                    logger.error(f"{error_msg}: {response.text}")
-                    raise SearchEngineAPIError(error_msg)
-
-                data = response.json()
-
-                # Parse results
-                results = []
-                organic_results = data.get("organic", [])
-
-                if not organic_results:
-                    logger.info(f"No results found for query: {query}")
-                    return results
-
-                for idx, result in enumerate(organic_results[:max_results], start=1):
-                    # Extract result data
-                    url = result.get("link", "")
-                    title = result.get("title", "")
-                    snippet = result.get("snippet", "")
-
-                    if not url or not title:
-                        logger.debug(f"Skipping result {idx} due to missing URL or title")
-                        continue
-
-                    search_result = SearchResult(
-                        url=url,
-                        title=title,
-                        description=snippet,
-                        rank=idx,
-                        domain=self._extract_domain(url),
+                    response = await client.post(
+                        self.API_URL,
+                        json=payload,
+                        headers=headers,
                     )
-                    results.append(search_result)
 
-                logger.info(f"Serper search for '{query}' returned {len(results)} results")
-                return results
+                    # Handle rate limiting
+                    if response.status_code == 429:
+                        error_msg = "Serper API rate limit exceeded"
+                        logger.error(error_msg)
+                        raise SearchEngineRateLimitError(error_msg)
+
+                    # Handle authentication errors
+                    if response.status_code == 401:
+                        error_msg = "Invalid Serper API key"
+                        logger.error(error_msg)
+                        raise SearchEngineAPIError(error_msg)
+
+                    # Handle other errors
+                    if response.status_code != 200:
+                        error_msg = f"Serper API request failed with status {response.status_code}"
+                        logger.error(f"{error_msg}: {response.text}")
+                        raise SearchEngineAPIError(error_msg)
+
+                    data = response.json()
+
+                    # Parse results from this page
+                    organic_results = data.get("organic", [])
+
+                    if not organic_results:
+                        logger.info(f"No more results found on page {page} for query: {query}")
+                        break  # No more results available
+
+                    for result in organic_results:
+                        # Stop if we've reached max_results
+                        if len(all_results) >= max_results:
+                            break
+
+                        # Extract result data
+                        url = result.get("link", "")
+                        title = result.get("title", "")
+                        snippet = result.get("snippet", "")
+
+                        if not url or not title:
+                            logger.debug(f"Skipping result due to missing URL or title")
+                            continue
+
+                        search_result = SearchResult(
+                            url=url,
+                            title=title,
+                            description=snippet,
+                            rank=len(all_results) + 1,
+                            domain=self._extract_domain(url),
+                        )
+                        all_results.append(search_result)
+
+                    # Stop if we've reached max_results
+                    if len(all_results) >= max_results:
+                        break
+
+                logger.info(
+                    f"Serper search for '{query}' returned {len(all_results)} results "
+                    f"from {page} page(s) (gl={gl}, hl={hl})"
+                )
+                return all_results
 
         except httpx.TimeoutException:
             error_msg = f"Serper API request timed out after {self.timeout} seconds"

@@ -95,6 +95,47 @@ carbon emissions"></textarea>
             <p class="mt-1 text-xs text-gray-500">Number of search results to retrieve per query (1-100)</p>
         </div>
 
+        <!-- Language and Location (for Serper) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-200 pt-6">
+            <div>
+                <label for="language" class="block text-sm font-medium text-gray-700">
+                    Language
+                </label>
+                <select
+                    id="language"
+                    name="language"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    <option value="da">Danish (Dansk)</option>
+                    <option value="en">English</option>
+                    <option value="de">German (Deutsch)</option>
+                    <option value="fr">French (Français)</option>
+                    <option value="es">Spanish (Español)</option>
+                    <option value="sv">Swedish (Svenska)</option>
+                    <option value="no">Norwegian (Norsk)</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500">Language for search results (hl parameter)</p>
+            </div>
+
+            <div>
+                <label for="country" class="block text-sm font-medium text-gray-700">
+                    Country
+                </label>
+                <select
+                    id="country"
+                    name="country"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    <option value="dk">Denmark</option>
+                    <option value="us">United States</option>
+                    <option value="gb">United Kingdom</option>
+                    <option value="de">Germany</option>
+                    <option value="fr">France</option>
+                    <option value="se">Sweden</option>
+                    <option value="no">Norway</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500">Country for search results (gl parameter)</p>
+            </div>
+        </div>
+
         <!-- Domain Filter -->
         <div>
             <label for="domain_filter" class="block text-sm font-medium text-gray-700">
