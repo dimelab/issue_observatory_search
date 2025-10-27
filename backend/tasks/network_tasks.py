@@ -25,7 +25,7 @@ class NetworkGenerationTask(Task):
 @celery_app.task(
     bind=True,
     base=NetworkGenerationTask,
-    name="tasks.generate_network",
+    name="backend.tasks.network_tasks.generate_network",
     soft_time_limit=600,  # 10 minutes
     time_limit=900,  # 15 minutes
 )
@@ -175,7 +175,7 @@ def generate_network_task(
 
 
 @celery_app.task(
-    name="tasks.cleanup_old_networks",
+    name="backend.tasks.network_tasks.cleanup_old_networks",
     soft_time_limit=300,  # 5 minutes
     time_limit=600,  # 10 minutes
 )
@@ -211,7 +211,7 @@ def cleanup_old_networks_task(days: Optional[int] = None) -> Dict[str, Any]:
 
 
 @celery_app.task(
-    name="tasks.recalculate_network_statistics",
+    name="backend.tasks.network_tasks.recalculate_network_statistics",
     soft_time_limit=300,
     time_limit=600,
 )
