@@ -8,12 +8,26 @@ echo "Test Database Setup for Issue Observatory"
 echo "=========================================="
 echo ""
 
+# Detect docker compose command (v1 vs v2)
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "❌ Neither 'docker-compose' nor 'docker compose' found"
+    echo "   Please install Docker Compose"
+    exit 1
+fi
+
+echo "ℹ️  Using: $DOCKER_COMPOSE"
+echo ""
+
 # Function to check if PostgreSQL is running and ready
 check_postgres() {
-    # Check if container is running via docker-compose
-    if docker-compose ps postgres 2>/dev/null | grep -qE "Up|running"; then
+    # Check if container is running via docker compose
+    if $DOCKER_COMPOSE ps postgres 2>/dev/null | grep -qE "Up|running"; then
         # Check if it's actually ready to accept connections
-        if docker-compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
             return 0
         fi
     fi
@@ -24,7 +38,7 @@ check_postgres() {
 wait_for_postgres() {
     echo "⏳ Waiting for PostgreSQL to be ready..."
     for i in {1..30}; do
-        if docker-compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
             echo "✅ PostgreSQL is ready!"
             return 0
         fi
@@ -43,16 +57,16 @@ else
     echo "❌ PostgreSQL not running or not ready"
     echo "🚀 Starting PostgreSQL container..."
 
-    if ! docker-compose up -d postgres; then
+    if ! $DOCKER_COMPOSE up -d postgres; then
         echo "❌ Failed to start PostgreSQL"
-        echo "   Try: docker-compose up -d postgres"
+        echo "   Try: $DOCKER_COMPOSE up -d postgres"
         exit 1
     fi
 
     # Wait for it to be ready
     if ! wait_for_postgres; then
         echo "❌ PostgreSQL started but not accepting connections"
-        echo "   Check logs: docker-compose logs postgres"
+        echo "   Check logs: $DOCKER_COMPOSE logs postgres"
         exit 1
     fi
 fi
@@ -60,7 +74,7 @@ fi
 echo ""
 
 # Get the container name
-CONTAINER_NAME=$(docker-compose ps postgres --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | cut -d'"' -f4 | head -1)
+CONTAINER_NAME=$($DOCKER_COMPOSE ps postgres --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | cut -d'"' -f4 | head -1)
 
 # Fallback to docker ps if docker-compose ps doesn't work
 if [ -z "$CONTAINER_NAME" ]; then
