@@ -170,7 +170,7 @@ class NetworkResponse(BaseModel):
     backboning_alpha: Optional[float] = None
     original_edge_count: Optional[int] = None
     backboning_statistics: Optional[Dict[str, Any]] = None
-    metadata: Dict[str, Any]
+    network_metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
 
