@@ -233,11 +233,13 @@
                     });
 
                     if (response.ok) {
-                        this.networks = await response.json();
+                        const data = await response.json();
+                        this.networks = data.networks || [];
                     } else {
                         showToast('Failed to load networks', 'error');
                     }
                 } catch (error) {
+                    console.error('Error loading networks:', error);
                     showToast('Error loading networks', 'error');
                 } finally {
                     this.loading = false;
