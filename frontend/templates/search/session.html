@@ -123,7 +123,7 @@
                     <!-- Results for this query (collapsible) -->
                     <div id="query-{{ query.id }}" class="hidden mt-4">
                         <div
-                            hx-get="/api/search/queries/{{ query.id }}/results"
+                            hx-get="/partials/search/queries/{{ query.id }}/results"
                             hx-trigger="revealed"
                             hx-swap="innerHTML"
                             class="space-y-3">

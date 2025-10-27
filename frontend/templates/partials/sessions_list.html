@@ -71,7 +71,7 @@
     {% if has_more %}
     <div class="p-6 text-center border-t border-gray-200">
         <button
-            hx-get="/api/search/sessions?page={{ next_page }}"
+            hx-get="/partials/search/sessions?page={{ next_page }}"
             hx-target="#sessions-list"
             hx-swap="beforeend"
             class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">

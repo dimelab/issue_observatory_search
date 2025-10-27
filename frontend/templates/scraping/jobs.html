@@ -15,7 +15,7 @@
             </div>
             <div class="flex items-center space-x-3">
                 <button
-                    hx-get="/api/scraping/jobs"
+                    hx-get="/partials/scraping/jobs"
                     hx-target="#jobs-list"
                     hx-swap="innerHTML"
                     class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
@@ -44,7 +44,7 @@
             </div>
         </div>
         <div id="active-jobs"
-             hx-get="/api/scraping/jobs?status=running"
+             hx-get="/partials/scraping/jobs?status=running"
              hx-trigger="load, every 5s"
              hx-swap="innerHTML"
              class="divide-y divide-gray-200">
@@ -65,7 +65,7 @@
             <h2 class="text-xl font-bold text-gray-900">All Jobs</h2>
         </div>
         <div id="jobs-list"
-             hx-get="/api/scraping/jobs"
+             hx-get="/partials/scraping/jobs"
              hx-trigger="load"
              hx-swap="innerHTML"
              class="divide-y divide-gray-200">

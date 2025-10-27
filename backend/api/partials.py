@@ -22,7 +22,7 @@ templates.env.filters["format_datetime"] = format_datetime
 templates.env.filters["format_number"] = format_number
 
 
-@router.get("/api/search/sessions", response_class=HTMLResponse)
+@router.get("/partials/search/sessions", response_class=HTMLResponse)
 async def get_sessions_partial(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -78,7 +78,7 @@ async def get_sessions_partial(
             "id": session.id,
             "name": session.name,
             "status": session.status or "completed",
-            "search_engine": session.search_engine,
+            "search_engine": session.config.get("search_engine", "unknown") if session.config else "unknown",
             "created_at": session.created_at,
             "query_count": query_count,
             "result_count": result_count,
@@ -97,7 +97,7 @@ async def get_sessions_partial(
     )
 
 
-@router.get("/api/search/queries/{query_id}/results", response_class=HTMLResponse)
+@router.get("/partials/search/queries/{query_id}/results", response_class=HTMLResponse)
 async def get_query_results_partial(
     request: Request,
     query_id: int,
@@ -151,7 +151,7 @@ async def get_query_results_partial(
     )
 
 
-@router.get("/api/scraping/jobs", response_class=HTMLResponse)
+@router.get("/partials/scraping/jobs", response_class=HTMLResponse)
 async def get_jobs_partial(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -237,7 +237,7 @@ async def get_jobs_partial(
     )
 
 
-@router.get("/api/scraping/jobs/{job_id}/content", response_class=HTMLResponse)
+@router.get("/partials/scraping/jobs/{job_id}/content", response_class=HTMLResponse)
 async def get_job_content_partial(
     job_id: int,
     current_user: CurrentUser,

@@ -30,7 +30,7 @@
                 <h2 class="text-xl font-bold text-gray-900">Search Sessions</h2>
                 <div class="flex items-center space-x-2">
                     <button
-                        hx-get="/api/search/sessions"
+                        hx-get="/partials/search/sessions"
                         hx-target="#sessions-list"
                         hx-swap="innerHTML"
                         class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
@@ -44,7 +44,7 @@
         </div>
 
         <div id="sessions-list"
-             hx-get="/api/search/sessions"
+             hx-get="/partials/search/sessions"
              hx-trigger="load"
              hx-swap="innerHTML"
              class="divide-y divide-gray-200">
