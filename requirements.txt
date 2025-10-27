@@ -92,7 +92,7 @@ prometheus-fastapi-instrumentator==6.1.0  # FastAPI Prometheus metrics
 textstat==0.7.3  # Text statistics
 langdetect==1.0.9  # Language detection
 tldextract==5.1.1  # Domain extraction
-validators==0.22.0  # URL validation
+validators==0.35.0  # URL validation
 tenacity==8.2.3  # Retry logic
 ratelimit==2.2.1  # Rate limiting
 cachetools==5.3.2  # Caching utilities
