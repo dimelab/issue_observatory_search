@@ -1,5 +1,6 @@
-"""Authentication schemas."""
 from __future__ import annotations
+
+"""Authentication schemas."""
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
