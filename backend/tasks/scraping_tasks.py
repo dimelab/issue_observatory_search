@@ -298,6 +298,23 @@ async def scrape_url_async(
         # Close scraper
         await scraper.close()
 
+        # If scraping failed, try to use search result snippet as fallback
+        if scrape_result.status == "failed" and depth == 1:
+            # Only use fallback for depth 1 (original search results)
+            result = await session.execute(
+                select(SearchResult).where(SearchResult.url == url)
+            )
+            search_result = result.scalar_one_or_none()
+
+            if search_result and search_result.description:
+                logger.info(f"Using search snippet as fallback for {url}")
+                scrape_result.extracted_text = search_result.description
+                scrape_result.word_count = len(search_result.description.split())
+                if search_result.title and not scrape_result.title:
+                    scrape_result.title = search_result.title
+                scrape_result.status = "success"  # Mark as success since we have some content
+                scrape_result.error_message = f"Used search snippet (original error: {scrape_result.error_message})"
+
         # Get or create Website record
         domain = urlparse(url).netloc
         website_result = await session.execute(

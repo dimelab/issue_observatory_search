@@ -201,8 +201,8 @@ class PlaywrightScraper:
         context = await browser.new_context(
             user_agent=self.user_agent,
             viewport={"width": 1440, "height": 900},
-            locale="en-US",
-            timezone_id="America/New_York",
+            locale="da-DK",
+            timezone_id="Europe/Copenhagen",
             # Additional stealth settings matching user's laptop
             has_touch=False,
             java_script_enabled=True,
@@ -215,10 +215,10 @@ class PlaywrightScraper:
             bypass_csp=True,
         )
 
-        # Add realistic HTTP headers
+        # Add realistic HTTP headers with Danish language
         await context.set_extra_http_headers({
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
@@ -251,9 +251,9 @@ class PlaywrightScraper:
                 }
             });
 
-            // Override languages to match user's laptop
+            // Override languages to Danish
             Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US']
+                get: () => ['da-DK', 'da', 'en-US', 'en']
             });
 
             // Match user's laptop hardware specs
