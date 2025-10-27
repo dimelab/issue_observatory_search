@@ -24,6 +24,7 @@ templates.env.filters["format_number"] = format_number
 
 @router.get("/partials/search/sessions", response_class=HTMLResponse)
 async def get_sessions_partial(
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -90,6 +91,7 @@ async def get_sessions_partial(
     return templates.TemplateResponse(
         "partials/sessions_list.html",
         {
+            "request": request,
             "sessions": sessions_data,
             "has_more": has_more,
             "next_page": page + 1,
@@ -153,6 +155,7 @@ async def get_query_results_partial(
 
 @router.get("/partials/scraping/jobs", response_class=HTMLResponse)
 async def get_jobs_partial(
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -232,6 +235,7 @@ async def get_jobs_partial(
     return templates.TemplateResponse(
         "partials/jobs_list.html",
         {
+            "request": request,
             "jobs": jobs_data,
         }
     )
@@ -239,6 +243,7 @@ async def get_jobs_partial(
 
 @router.get("/partials/scraping/jobs/{job_id}/content", response_class=HTMLResponse)
 async def get_job_content_partial(
+    request: Request,
     job_id: int,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -300,6 +305,7 @@ async def get_job_content_partial(
     return templates.TemplateResponse(
         "partials/scraped_content.html",
         {
+            "request": request,
             "content": content_data,
             "has_more": has_more,
             "next_page": page + 1,
