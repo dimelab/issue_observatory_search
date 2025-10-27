@@ -7,7 +7,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
 from playwright_stealth import Stealth
-import httpx
+import requests
 
 from backend.utils.robots import RobotsChecker
 from backend.utils.content_extraction import (
@@ -461,27 +461,33 @@ class PlaywrightScraper:
             Tuple of (html_content, status_code) if successful, None otherwise
         """
         try:
-            async with httpx.AsyncClient(
-                timeout=30.0,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": self.user_agent,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Connection": "keep-alive",
-                }
-            ) as client:
-                response = await client.get(url)
+            # Run synchronous requests in executor to not block event loop
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.get(
+                    url,
+                    timeout=30,
+                    headers={
+                        "User-Agent": self.user_agent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Connection": "keep-alive",
+                    }
+                )
+            )
 
-                # Check if response looks like a CAPTCHA page
-                if self._is_captcha_page(response.text, url):
-                    logger.info(f"Simple HTTP got CAPTCHA for {url}, will try Playwright")
-                    return None
+            response.raise_for_status()
 
-                # Success!
-                logger.info(f"Simple HTTP succeeded for {url}")
-                return (response.text, response.status_code)
+            # Check if response looks like a CAPTCHA page
+            if self._is_captcha_page(response.text, url):
+                logger.info(f"Simple HTTP got CAPTCHA for {url}, will try Playwright")
+                return None
+
+            # Success!
+            logger.info(f"Simple HTTP succeeded for {url}")
+            return (response.text, response.status_code)
 
         except Exception as e:
             logger.debug(f"Simple HTTP failed for {url}: {e}, will try Playwright")
