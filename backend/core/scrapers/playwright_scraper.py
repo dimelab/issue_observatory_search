@@ -493,6 +493,9 @@ class PlaywrightScraper:
 
             response.raise_for_status()
 
+            # Ensure proper UTF-8 encoding for Danish characters
+            response.encoding = response.apparent_encoding or 'utf-8'
+
             # Check if response looks like a CAPTCHA page
             if self._is_captcha_page(response.text, url):
                 logger.info(f"Simple HTTP got CAPTCHA for {url}, will try Playwright")
