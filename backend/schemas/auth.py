@@ -2,16 +2,8 @@ from __future__ import annotations
 
 """Authentication schemas."""
 from datetime import datetime
+from typing import TYPE_CHECKING
 from pydantic import BaseModel, EmailStr, Field
-
-
-class Token(BaseModel):
-    """JWT token response."""
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: UserResponse
 
 
 class TokenData(BaseModel):
@@ -49,6 +41,15 @@ class UserResponse(BaseModel):
     last_login: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class Token(BaseModel):
+    """JWT token response."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
 
 
 class UserUpdate(BaseModel):
