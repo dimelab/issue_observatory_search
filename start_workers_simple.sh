@@ -35,7 +35,7 @@ echo ""
 
 # Start scraping worker
 echo "Starting scraping worker..."
-celery -A backend.celery_app worker \
+xvfb-run celery -A backend.celery_app worker \
     -Q scraping \
     -n scraping_worker@%h \
     --loglevel=info \

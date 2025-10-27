@@ -290,7 +290,7 @@ async def scrape_url_async(
             max_retries=job.max_retries,
             timeout=job.timeout,
             respect_robots_txt=job.respect_robots_txt,
-            headless=False,  # Set to False for testing with visible browser
+            headless=True,  # Use headless mode on server (set False only for local testing with display)
         )
 
         # Scrape URL
