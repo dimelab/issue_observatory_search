@@ -46,7 +46,7 @@ Log ind med dit brugernavn og password.
 3. Klik **"Generate Network"**
 4. Vent til den er færdig (10-30 sekunder)
 5. Klik på visualize
-6. evt. Klik **"Download GEXF"** og gem filen
+6. evt. Klik **"Download (pil nedad)"** og gem fil som .csv eller .gexf
 7. !!! Din browser vil muligvis forsøge at blokere download. Se hvad den gør og giv eksplicit tilladelse.
 
 **Resultat**: 29 noder (4 søgeord + 25 domæner), 40 forbindelser
@@ -91,7 +91,7 @@ Log ind med dit brugernavn og password.
    - **Minimum TF-IDF Score**: Vælg 0
 3. Klik **"Generate Network"**
 4. Vent (3-4 minutter)
-5. Klik **"Download GEXF"** og gem filen
+5. evt. Klik **"Download (pil nedad)"** og gem fil som .csv eller .gexf
 6. !!! Din browser vil muligvis forsøge at blokere download. Se hvad den gør og giv eksplicit tilladelse.
 
 **Tip**: Du kan lave netværket selvom scraping blev cancelled - det bruger bare de sider der blev scraped succesfuldt.

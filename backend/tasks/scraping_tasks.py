@@ -346,44 +346,112 @@ async def scrape_url_async(
         if scrape_result.meta_description:
             website.meta_description = scrape_result.meta_description
 
-        # Helper function to remove NUL bytes that PostgreSQL can't handle
-        def clean_text(text: str | None) -> str | None:
+        # Helper function to clean and truncate text for PostgreSQL
+        def clean_and_truncate_text(text: str | None, max_bytes: int = 900000) -> str | None:
+            """
+            Clean text and truncate if too large for PostgreSQL.
+
+            PostgreSQL has a 1MB limit for tsvector columns.
+            We truncate at 900KB to be safe.
+            """
             if text is None:
                 return None
-            return text.replace('\x00', '')
+
+            # Remove NUL bytes
+            text = text.replace('\x00', '')
+
+            # Check if text looks like binary data (PDF, etc.)
+            # If more than 10% non-printable characters, it's likely binary
+            if len(text) > 0:
+                non_printable = sum(1 for c in text[:1000] if ord(c) < 32 and c not in '\n\r\t')
+                if non_printable > 100:  # More than 10% of sample
+                    logger.warning(f"Detected binary content for {url}, discarding")
+                    return "[Binary content - could not extract text]"
+
+            # Truncate if too large (check byte size, not character count)
+            text_bytes = text.encode('utf-8')
+            if len(text_bytes) > max_bytes:
+                logger.warning(f"Text too large for {url} ({len(text_bytes)} bytes), truncating to {max_bytes} bytes")
+                # Truncate at byte boundary and decode
+                text = text_bytes[:max_bytes].decode('utf-8', errors='ignore')
+                text += "\n\n[... Content truncated due to size limits ...]"
+
+            return text
+
+        # Clean and prepare content
+        cleaned_html = clean_and_truncate_text(scrape_result.html_content)
+        cleaned_text = clean_and_truncate_text(scrape_result.extracted_text)
+
+        # If both are binary/empty, mark as failed
+        if (cleaned_text and "[Binary content" in cleaned_text and
+            cleaned_html and "[Binary content" in cleaned_html):
+            scrape_result.status = "failed"
+            scrape_result.error_message = "Could not extract text from binary content (PDF, etc.)"
+            cleaned_text = None
+            cleaned_html = None
 
         # Create WebsiteContent record
-        content = WebsiteContent(
-            website_id=website.id,
-            user_id=job.user_id,
-            scraping_job_id=job.id,
-            url=url,
-            html_content=clean_text(scrape_result.html_content),
-            extracted_text=clean_text(scrape_result.extracted_text),
-            title=clean_text(scrape_result.title),
-            meta_description=clean_text(scrape_result.meta_description),
-            language=scrape_result.language,
-            word_count=scrape_result.word_count,
-            scrape_depth=depth,
-            parent_url=parent_url,
-            status=scrape_result.status,
-            error_message=clean_text(scrape_result.error_message),
-            outbound_links=scrape_result.outbound_links,
-            http_status_code=scrape_result.http_status_code,
-            final_url=scrape_result.final_url,
-            scrape_duration=int(scrape_result.duration * 1000),  # Convert to milliseconds
-        )
-        session.add(content)
+        try:
+            content = WebsiteContent(
+                website_id=website.id,
+                user_id=job.user_id,
+                scraping_job_id=job.id,
+                url=url,
+                html_content=cleaned_html,
+                extracted_text=cleaned_text,
+                title=clean_and_truncate_text(scrape_result.title, max_bytes=10000),
+                meta_description=clean_and_truncate_text(scrape_result.meta_description, max_bytes=10000),
+                language=scrape_result.language,
+                word_count=scrape_result.word_count if scrape_result.word_count < 10000000 else 0,
+                scrape_depth=depth,
+                parent_url=parent_url,
+                status=scrape_result.status,
+                error_message=clean_and_truncate_text(scrape_result.error_message, max_bytes=10000),
+                outbound_links=scrape_result.outbound_links,
+                http_status_code=scrape_result.http_status_code,
+                final_url=scrape_result.final_url,
+                scrape_duration=int(scrape_result.duration * 1000),  # Convert to milliseconds
+            )
+            session.add(content)
 
-        # Update job statistics
-        if scrape_result.status == "success":
-            job.urls_scraped += 1
-        elif scrape_result.status == "failed":
+            # Update job statistics
+            if scrape_result.status == "success":
+                job.urls_scraped += 1
+            elif scrape_result.status == "failed":
+                job.urls_failed += 1
+            elif scrape_result.status == "skipped":
+                job.urls_skipped += 1
+
+            await session.commit()
+        except Exception as db_error:
+            # If database insert still fails, rollback and save minimal record
+            logger.error(f"Failed to insert content for {url}: {db_error}")
+            await session.rollback()
+
+            # Create minimal error record
+            content = WebsiteContent(
+                website_id=website.id,
+                user_id=job.user_id,
+                scraping_job_id=job.id,
+                url=url,
+                html_content=None,
+                extracted_text=None,
+                title=None,
+                meta_description=None,
+                language=None,
+                word_count=0,
+                scrape_depth=depth,
+                parent_url=parent_url,
+                status="failed",
+                error_message=f"Database error: {str(db_error)[:500]}",
+                outbound_links=[],
+                http_status_code=scrape_result.http_status_code,
+                final_url=scrape_result.final_url,
+                scrape_duration=int(scrape_result.duration * 1000),
+            )
+            session.add(content)
             job.urls_failed += 1
-        elif scrape_result.status == "skipped":
-            job.urls_skipped += 1
-
-        await session.commit()
+            await session.commit()
 
         logger.info(f"Scraped {url} (depth {depth}): {scrape_result.status}")
 
