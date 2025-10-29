@@ -141,18 +141,31 @@ class SerperSearch(SearchEngineBase):
         }
 
         # Configure timeout - httpx needs explicit timeout configuration
+        # Note: connect timeout needs to be generous for initial TLS handshake
         timeout_config = httpx.Timeout(
             timeout=self.timeout,  # Overall timeout
-            connect=10.0,          # Connection timeout
+            connect=30.0,          # Connection timeout - generous for DNS + TLS handshake
             read=self.timeout,     # Read timeout
-            write=10.0,            # Write timeout
-            pool=5.0               # Pool timeout
+            write=15.0,            # Write timeout
+            pool=10.0              # Pool timeout
+        )
+
+        # Configure connection limits to avoid stale connections
+        limits = httpx.Limits(
+            max_keepalive_connections=5,
+            max_connections=10,
+            keepalive_expiry=30.0  # Keep connections alive for 30s
         )
 
         logger.debug(f"Serper search starting with timeout={self.timeout}s for query: {query}")
 
         try:
-            async with httpx.AsyncClient(timeout=timeout_config) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout_config,
+                limits=limits,
+                http2=False,  # Disable HTTP/2 to avoid potential issues
+                follow_redirects=True
+            ) as client:
                 for page in range(1, pages_needed + 1):
                     # Build request payload for this page
                     payload = {
