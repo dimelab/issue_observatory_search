@@ -33,17 +33,19 @@ class SerperSearch(SearchEngineBase):
 
     API_URL = "https://google.serper.dev/search"
 
-    def __init__(self, api_key: Optional[str] = None, timeout: int = 30, **kwargs) -> None:
+    def __init__(self, api_key: Optional[str] = None, timeout: int = 60, max_retries: int = 2, **kwargs) -> None:
         """
         Initialize Serper search engine.
 
         Args:
             api_key: Serper API key
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: 60 for complex queries)
+            max_retries: Maximum number of retries on timeout (default: 2)
             **kwargs: Additional configuration
         """
         super().__init__(api_key, **kwargs)
         self.timeout = timeout
+        self.max_retries = max_retries
 
         if not self.api_key:
             raise SearchEngineConfigError("Serper API key is required")
@@ -138,8 +140,19 @@ class SerperSearch(SearchEngineBase):
             "Content-Type": "application/json",
         }
 
+        # Configure timeout - httpx needs explicit timeout configuration
+        timeout_config = httpx.Timeout(
+            timeout=self.timeout,  # Overall timeout
+            connect=10.0,          # Connection timeout
+            read=self.timeout,     # Read timeout
+            write=10.0,            # Write timeout
+            pool=5.0               # Pool timeout
+        )
+
+        logger.debug(f"Serper search starting with timeout={self.timeout}s for query: {query}")
+
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout_config) as client:
                 for page in range(1, pages_needed + 1):
                     # Build request payload for this page
                     payload = {
@@ -150,17 +163,68 @@ class SerperSearch(SearchEngineBase):
                         "hl": hl,
                     }
 
+                    # Log the exact payload being sent for debugging
+                    logger.info(
+                        f"Serper API payload: q={repr(query)}, "
+                        f"num={results_per_page}, page={page}, gl={gl}, hl={hl}"
+                    )
+
                     # Add optional location parameter
                     if "location" in kwargs:
                         payload["location"] = kwargs["location"]
 
-                    logger.debug(f"Fetching page {page}/{pages_needed} for query: {query}")
-
-                    response = await client.post(
-                        self.API_URL,
-                        json=payload,
-                        headers=headers,
+                    logger.info(
+                        f"Fetching page {page}/{pages_needed} for query '{query}' "
+                        f"(timeout={self.timeout}s, has_api_key={bool(self.api_key)})"
                     )
+
+                    # Retry logic for timeouts
+                    retry_count = 0
+                    response = None
+                    last_error = None
+
+                    while retry_count <= self.max_retries:
+                        try:
+                            import time
+                            start_time = time.time()
+                            logger.info(
+                                f"Attempt {retry_count + 1}/{self.max_retries + 1} for query: {query[:50]}... "
+                                f"(POST to {self.API_URL})"
+                            )
+                            response = await client.post(
+                                self.API_URL,
+                                json=payload,
+                                headers=headers,
+                            )
+                            elapsed = time.time() - start_time
+                            logger.info(
+                                f"Request successful on attempt {retry_count + 1} "
+                                f"(took {elapsed:.2f}s, status={response.status_code})"
+                            )
+                            break  # Success, exit retry loop
+
+                        except httpx.TimeoutException as e:
+                            retry_count += 1
+                            last_error = e
+                            if retry_count <= self.max_retries:
+                                wait_time = 2 ** retry_count  # Exponential backoff: 2, 4, 8 seconds
+                                logger.warning(
+                                    f"Timeout on attempt {retry_count}/{self.max_retries + 1} "
+                                    f"for query '{query}', retrying in {wait_time}s..."
+                                )
+                                import asyncio
+                                await asyncio.sleep(wait_time)
+                            else:
+                                logger.error(
+                                    f"Failed after {retry_count} attempts for query: {query}"
+                                )
+                                raise SearchEngineAPIError(
+                                    f"Serper API timed out after {self.timeout}s and {self.max_retries} retries. "
+                                    f"Try simplifying your query or increasing timeout."
+                                )
+
+                    if response is None:
+                        raise SearchEngineAPIError("Failed to get response from Serper API")
 
                     # Handle rate limiting
                     if response.status_code == 429:
@@ -223,7 +287,10 @@ class SerperSearch(SearchEngineBase):
                 return all_results
 
         except httpx.TimeoutException:
-            error_msg = f"Serper API request timed out after {self.timeout} seconds"
+            error_msg = (
+                f"Serper API request timed out after {self.timeout} seconds. "
+                f"Complex queries with operators may take longer. Try simplifying the query."
+            )
             logger.error(error_msg)
             raise SearchEngineAPIError(error_msg)
 
