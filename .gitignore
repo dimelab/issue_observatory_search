@@ -139,6 +139,9 @@ cython_debug/
 # IDEs and Editors
 # ===========================
 
+# Claude Code
+.claude/
+
 # VSCode
 .vscode/
 *.code-workspace

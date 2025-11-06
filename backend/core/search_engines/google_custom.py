@@ -42,6 +42,26 @@ class GoogleCustomSearch(SearchEngineBase):
         super().__init__(api_key=api_key, **kwargs)
         self.search_engine_id = search_engine_id
         self.timeout = timeout
+
+        # Configure timeout
+        self.timeout_config = httpx.Timeout(
+            timeout=self.timeout,
+            connect=30.0,  # Generous for DNS + TLS handshake
+            read=self.timeout,
+            write=15.0,
+            pool=10.0
+        )
+
+        # Configure connection limits
+        self.limits = httpx.Limits(
+            max_keepalive_connections=5,
+            max_connections=10,
+            keepalive_expiry=30.0
+        )
+
+        # Persistent HTTP client
+        self._client: Optional[httpx.AsyncClient] = None
+
         self.validate_config()
 
     def validate_config(self) -> bool:
@@ -69,6 +89,33 @@ class GoogleCustomSearch(SearchEngineBase):
     def max_results_limit(self) -> int:
         """Get maximum results limit."""
         return self.MAX_TOTAL_RESULTS
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the persistent HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout_config,
+                limits=self.limits,
+                http2=False,
+                follow_redirects=True
+            )
+            logger.debug("Created new persistent httpx client for Google Custom Search")
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client and release resources."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+            logger.debug("Closed persistent httpx client for Google Custom Search")
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
 
     async def search(
         self,
@@ -100,7 +147,10 @@ class GoogleCustomSearch(SearchEngineBase):
         results = []
         start_index = 1
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # Get persistent client (reuses connections across searches)
+        client = await self._get_client()
+
+        try:
             while len(results) < max_results:
                 # Calculate how many results to fetch in this request
                 num_results = min(
@@ -177,10 +227,14 @@ class GoogleCustomSearch(SearchEngineBase):
                 # Move to next page
                 start_index += num_results
 
-        logger.info(
-            f"Google Custom Search: Retrieved {len(results)} results for query '{query}'"
-        )
-        return results
+            logger.info(
+                f"Google Custom Search: Retrieved {len(results)} results for query '{query}'"
+            )
+            return results
+
+        except Exception as e:
+            logger.error(f"Unexpected error during Google Custom Search: {str(e)}")
+            raise SearchEngineAPIError(f"Unexpected error: {str(e)}")
 
     def _extract_domain(self, url: str) -> str:
         """
