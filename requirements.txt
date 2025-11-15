@@ -34,7 +34,7 @@ google-api-python-client==2.114.0
 serpapi==0.1.5
 
 # NLP & Text Processing
-spacy==3.7.2
+spacy==3.8.7
 # nltk==3.8.1  # NOT USED - all NLP done with spaCy
 # sentence-transformers==2.2.2  # NOT USED - planned for Phase 5 (LLM features) but not implemented
 # torch==2.1.2  # NOT USED - only needed for sentence-transformers (800MB+, disabled to save space)
