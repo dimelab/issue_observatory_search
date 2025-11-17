@@ -69,7 +69,7 @@ faker==22.0.0
 # httpx==0.26.0  # Already listed in Web Scraping section
 
 # Code Quality
-black==23.12.1
+black==25.9.0
 ruff==0.8.4  # Fast linter and formatter
 isort==5.13.2
 flake8==7.0.0
