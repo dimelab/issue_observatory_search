@@ -487,17 +487,20 @@
                         payload.aggregate_by_domain = this.config.aggregate_by_domain;
 
                         // v6.0.0: Keyword extraction configuration
+                        // NOTE: Currently only 'noun' method is implemented in the backend
+                        // Other methods (all_pos, tfidf, rake) fall back to noun extraction
+                        // So we always use 'noun' method for now
                         if (this.config.keyword_method === 'tfidf') {
-                            // TF-IDF method with keyword type selection
+                            // TF-IDF method (uses noun extraction backend, keyword type is for future use)
                             payload.keyword_config = {
-                                method: this.config.tfidf_keyword_type,  // 'noun' or 'all_pos'
+                                method: 'noun',  // Backend only supports 'noun' for now
                                 use_bigrams: this.config.use_bigrams,
                                 idf_weight: this.config.idf_weight
                             };
                         } else if (this.config.keyword_method === 'rake') {
-                            // RAKE method
+                            // RAKE method (falls back to noun in backend)
                             payload.keyword_config = {
-                                method: 'rake',
+                                method: 'noun',  // Backend only supports 'noun' for now
                                 max_phrase_length: this.config.max_phrase_length
                             };
                         }

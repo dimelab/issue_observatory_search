@@ -261,7 +261,7 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Apply ForceAtlas2 layout using graphology-library
+     * Apply ForceAtlas2 layout using graphology-library (initial layout only)
      */
     async applyForceAtlas2Layout() {
         // Check if graphology-library is available
@@ -271,7 +271,7 @@ class GraphologyNetworkVisualizer {
         }
 
         try {
-            console.log('Starting ForceAtlas2 layout...');
+            console.log('Starting initial ForceAtlas2 layout...');
 
             // Create FA2Layout instance
             const FA2Layout = graphologyLibrary.FA2Layout;
@@ -299,11 +299,95 @@ class GraphologyNetworkVisualizer {
             // Stop the layout
             this.fa2Layout.stop();
 
-            console.log('ForceAtlas2 layout complete');
+            console.log('Initial ForceAtlas2 layout complete');
 
         } catch (error) {
             console.error('Error applying ForceAtlas2 layout:', error);
         }
+    }
+
+    /**
+     * Start ForceAtlas2 layout (continuous)
+     */
+    startLayout() {
+        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.FA2Layout) {
+            console.warn('ForceAtlas2 layout not available');
+            return;
+        }
+
+        try {
+            // Kill existing layout if any
+            if (this.fa2Layout) {
+                this.fa2Layout.kill();
+            }
+
+            // Create new FA2Layout instance with current settings
+            const FA2Layout = graphologyLibrary.FA2Layout;
+            this.fa2Layout = new FA2Layout(this.graph, {
+                settings: this.options.fa2Settings
+            });
+
+            // Start continuous layout
+            this.fa2Layout.start();
+
+            // Setup animation loop to refresh renderer
+            this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
+
+            console.log('ForceAtlas2 layout started');
+        } catch (error) {
+            console.error('Error starting layout:', error);
+        }
+    }
+
+    /**
+     * Animation loop for continuous layout
+     */
+    animateLayout() {
+        if (this.fa2Layout && this.fa2Layout.isRunning && this.fa2Layout.isRunning()) {
+            this.renderer.refresh();
+            this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
+        }
+    }
+
+    /**
+     * Stop ForceAtlas2 layout
+     */
+    stopLayout() {
+        if (this.fa2Layout) {
+            this.fa2Layout.stop();
+
+            // Cancel animation frame
+            if (this.layoutAnimationFrame) {
+                cancelAnimationFrame(this.layoutAnimationFrame);
+                this.layoutAnimationFrame = null;
+            }
+
+            console.log('ForceAtlas2 layout stopped');
+        }
+    }
+
+    /**
+     * Update layout settings (kills and recreates layout if running)
+     */
+    updateLayoutSettings(newSettings) {
+        // Update stored settings
+        this.options.fa2Settings = {
+            ...this.options.fa2Settings,
+            ...newSettings
+        };
+
+        // If layout is running, restart it with new settings
+        const wasRunning = this.fa2Layout && this.fa2Layout.isRunning && this.fa2Layout.isRunning();
+
+        if (wasRunning) {
+            this.stopLayout();
+            // Small delay before restart
+            setTimeout(() => {
+                this.startLayout();
+            }, 100);
+        }
+
+        console.log('Layout settings updated:', this.options.fa2Settings);
     }
 
     /**

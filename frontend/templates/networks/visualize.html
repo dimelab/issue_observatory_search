@@ -63,13 +63,19 @@
                     </button>
                 </div>
 
-                <!-- Physics Toggle -->
-                <button @click="togglePhysics()"
-                        :class="{ 'bg-blue-50 text-blue-700 border-blue-300': physics, 'text-gray-700 hover:bg-gray-50': !physics }"
-                        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium transition-colors"
-                        title="Toggle physics (P)">
-                    <span x-show="physics">Physics: On</span>
-                    <span x-show="!physics">Physics: Off</span>
+                <!-- Layout Controls -->
+                <button @click="startLayout()"
+                        :disabled="layoutRunning"
+                        :class="layoutRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-50'"
+                        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 transition-colors">
+                    ▶️ Start Layout
+                </button>
+
+                <button @click="stopLayout()"
+                        :disabled="!layoutRunning"
+                        :class="!layoutRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-50'"
+                        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 transition-colors">
+                    ⏸️ Stop Layout
                 </button>
 
                 <!-- Export -->
@@ -82,9 +88,10 @@
                     Export
                 </button>
 
-                <!-- Settings -->
-                <button @click="showSettings = !showSettings"
-                        class="px-3 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors">
+                <!-- Layout Settings Toggle -->
+                <button @click="showLayoutSettings = !showLayoutSettings"
+                        :class="showLayoutSettings ? 'bg-blue-50 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
+                        class="px-3 py-2 border border-gray-300 rounded-md transition-colors">
                     <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -93,15 +100,59 @@
             </div>
         </div>
 
-        <!-- Stabilization Progress -->
-        <div x-show="stabilizing" x-cloak class="mt-4">
-            <div class="flex justify-between items-center mb-2">
-                <span class="text-sm font-medium text-gray-700">Stabilizing network...</span>
-                <span class="text-sm font-medium text-gray-700" x-text="stabilizationProgress + '%'"></span>
-            </div>
-            <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                     :style="'width: ' + stabilizationProgress + '%'"></div>
+        <!-- Layout Settings Panel -->
+        <div x-show="showLayoutSettings" x-cloak class="mt-4 bg-white rounded-lg shadow-md p-4">
+            <h3 class="text-sm font-semibold text-gray-900 mb-4">ForceAtlas2 Settings</h3>
+
+            <div class="space-y-4">
+                <!-- Gravity -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-sm font-medium text-gray-700">Gravity</label>
+                        <span class="text-sm text-gray-600" x-text="layoutSettings.gravity"></span>
+                    </div>
+                    <input type="range"
+                           x-model.number="layoutSettings.gravity"
+                           @input="updateLayoutSettings()"
+                           min="0" max="5" step="0.1"
+                           class="w-full">
+                </div>
+
+                <!-- Scaling Ratio -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-sm font-medium text-gray-700">Scaling</label>
+                        <span class="text-sm text-gray-600" x-text="layoutSettings.scalingRatio"></span>
+                    </div>
+                    <input type="range"
+                           x-model.number="layoutSettings.scalingRatio"
+                           @input="updateLayoutSettings()"
+                           min="1" max="50" step="1"
+                           class="w-full">
+                </div>
+
+                <!-- Edge Weight Influence -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-sm font-medium text-gray-700">Edge Weight</label>
+                        <span class="text-sm text-gray-600" x-text="layoutSettings.edgeWeightInfluence"></span>
+                    </div>
+                    <input type="range"
+                           x-model.number="layoutSettings.edgeWeightInfluence"
+                           @input="updateLayoutSettings()"
+                           min="0" max="2" step="0.1"
+                           class="w-full">
+                </div>
+
+                <!-- Barnes-Hut Optimization -->
+                <div class="flex items-center">
+                    <input type="checkbox"
+                           x-model="layoutSettings.barnesHutOptimize"
+                           @change="updateLayoutSettings()"
+                           id="barnesHut"
+                           class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <label for="barnesHut" class="ml-2 text-sm text-gray-700">Barnes-Hut Optimization</label>
+                </div>
             </div>
         </div>
     </div>
@@ -233,13 +284,19 @@
             networkId: networkId,
             networkName: '',
             visualizer: null,
-            physics: true,
             searchQuery: '',
             filterTypes: [],
             selectedNode: null,
-            stabilizing: false,
-            stabilizationProgress: 0,
-            showSettings: false,
+            showLayoutSettings: false,
+            layoutRunning: false,
+            layoutSettings: {
+                gravity: 1.0,
+                scalingRatio: 10,
+                edgeWeightInfluence: 1.0,
+                barnesHutOptimize: true,
+                barnesHutTheta: 1.2,
+                slowDown: 1
+            },
             stats: {
                 nodes: 0,
                 edges: 0,
@@ -248,18 +305,11 @@
             },
 
             init() {
-                // v6.0.0: Use Graphology visualizer by default, fallback to Vis.js if not available
-                const useGraphology = typeof GraphologyNetworkVisualizer !== 'undefined';
-
-                if (useGraphology) {
-                    console.log('Using Graphology + Sigma.js visualizer (v6.0.0)');
-                    this.visualizer = new GraphologyNetworkVisualizer('network-container');
-                } else {
-                    console.log('Falling back to Vis.js visualizer');
-                    this.visualizer = new NetworkVisualizer('network-container', {
-                        physics: true
-                    });
-                }
+                // v6.0.0: Use Graphology visualizer with custom FA2 settings
+                console.log('Using Graphology + Sigma.js visualizer (v6.0.0)');
+                this.visualizer = new GraphologyNetworkVisualizer('network-container', {
+                    fa2Settings: this.layoutSettings
+                });
 
                 // Override callbacks
                 this.visualizer.onNodeSelect = (node) => {
@@ -269,19 +319,6 @@
                 this.visualizer.onNodeDeselect = () => {
                     this.selectedNode = null;
                 };
-
-                // Stabilization callbacks (Vis.js only)
-                if (!useGraphology) {
-                    this.visualizer.onStabilizationProgress = (progress) => {
-                        this.stabilizing = true;
-                        this.stabilizationProgress = progress;
-                    };
-
-                    this.visualizer.onStabilizationComplete = () => {
-                        this.stabilizing = false;
-                        this.updateStats();
-                    };
-                }
 
                 // Load network data
                 this.loadNetwork();
@@ -322,10 +359,29 @@
                 this.updateStats();
             },
 
-            togglePhysics() {
-                // Only available for Vis.js visualizer
-                if (typeof this.visualizer.togglePhysics === 'function') {
-                    this.physics = this.visualizer.togglePhysics();
+            // Layout control methods
+            startLayout() {
+                if (this.visualizer && typeof this.visualizer.startLayout === 'function') {
+                    this.visualizer.startLayout();
+                    this.layoutRunning = true;
+                }
+            },
+
+            stopLayout() {
+                if (this.visualizer && typeof this.visualizer.stopLayout === 'function') {
+                    this.visualizer.stopLayout();
+                    this.layoutRunning = false;
+                }
+            },
+
+            updateLayoutSettings() {
+                // Update settings and restart layout if running
+                if (this.visualizer && typeof this.visualizer.updateLayoutSettings === 'function') {
+                    this.visualizer.updateLayoutSettings(this.layoutSettings);
+                    // If layout was running, restart it
+                    if (this.layoutRunning) {
+                        this.visualizer.startLayout();
+                    }
                 }
             },
 
@@ -361,10 +417,6 @@
                             break;
                         case '0':
                             this.fit();
-                            break;
-                        case 'p':
-                        case 'P':
-                            this.togglePhysics();
                             break;
                     }
                 });
