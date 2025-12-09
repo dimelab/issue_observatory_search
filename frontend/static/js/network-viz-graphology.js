@@ -275,10 +275,21 @@ class GraphologyNetworkVisualizer {
         try {
             console.log('Starting initial ForceAtlas2 layout...');
 
-            // Create FA2Layout instance
+            // Create FA2Layout instance with serializable settings
             const FA2Layout = graphologyLibrary.FA2Layout;
+            const cleanSettings = {
+                adjustSizes: Boolean(this.options.fa2Settings.adjustSizes),
+                barnesHutOptimize: Boolean(this.options.fa2Settings.barnesHutOptimize),
+                barnesHutTheta: Number(this.options.fa2Settings.barnesHutTheta),
+                edgeWeightInfluence: Number(this.options.fa2Settings.edgeWeightInfluence),
+                gravity: Number(this.options.fa2Settings.gravity),
+                scalingRatio: Number(this.options.fa2Settings.scalingRatio),
+                slowDown: Number(this.options.fa2Settings.slowDown),
+                linLogMode: Boolean(this.options.fa2Settings.linLogMode)
+            };
+
             this.fa2Layout = new FA2Layout(this.graph, {
-                settings: this.options.fa2Settings
+                settings: cleanSettings
             });
 
             // Run layout for a fixed number of iterations
@@ -337,9 +348,21 @@ class GraphologyNetworkVisualizer {
             }
 
             // Create new FA2Layout instance with current settings
+            // Ensure settings are serializable (no functions, only primitives)
             const FA2Layout = graphologyLibrary.FA2Layout;
+            const cleanSettings = {
+                adjustSizes: Boolean(this.options.fa2Settings.adjustSizes),
+                barnesHutOptimize: Boolean(this.options.fa2Settings.barnesHutOptimize),
+                barnesHutTheta: Number(this.options.fa2Settings.barnesHutTheta),
+                edgeWeightInfluence: Number(this.options.fa2Settings.edgeWeightInfluence),
+                gravity: Number(this.options.fa2Settings.gravity),
+                scalingRatio: Number(this.options.fa2Settings.scalingRatio),
+                slowDown: Number(this.options.fa2Settings.slowDown),
+                linLogMode: Boolean(this.options.fa2Settings.linLogMode)
+            };
+
             this.fa2Layout = new FA2Layout(this.graph, {
-                settings: this.options.fa2Settings
+                settings: cleanSettings
             });
 
             // Mark as running
@@ -351,7 +374,7 @@ class GraphologyNetworkVisualizer {
             // Setup animation loop to refresh renderer
             this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
 
-            console.log('ForceAtlas2 layout started');
+            console.log('ForceAtlas2 layout started with settings:', cleanSettings);
         } catch (error) {
             console.error('Error starting layout:', error);
             this.layoutIsRunning = false;
