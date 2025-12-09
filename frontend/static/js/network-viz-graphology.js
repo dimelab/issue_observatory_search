@@ -27,8 +27,8 @@ class GraphologyNetworkVisualizer {
         this.graph = new graphology.Graph({ type: 'undirected' });
         this.renderer = null;
         this.rawData = null;
+        this.fa2Layout = null;  // ForceAtlas2 layout instance
         this.layoutIsRunning = false;
-        this.layoutAnimationFrame = null;
 
         // Configuration (similar to some2net)
         this.options = {
@@ -208,22 +208,36 @@ class GraphologyNetworkVisualizer {
 
         // Add nodes to graph
         nodesData.forEach(({ id, label, nodeType, attributes, x, y }) => {
-            this.graph.addNode(id, {
-                label,
+            // Only include serializable primitive attributes
+            const nodeAttrs = {
+                label: String(label),
                 size: 10,
                 color: this.getNodeColor(nodeType),
-                node_type: nodeType,
-                x: x !== undefined ? x : 0,
-                y: y !== undefined ? y : 0,
-                ...attributes
-            });
+                node_type: String(nodeType),
+                x: Number(x !== undefined ? x : 0),
+                y: Number(y !== undefined ? y : 0)
+            };
+
+            // Add only string/number attributes from GEXF
+            if (attributes) {
+                Object.keys(attributes).forEach(key => {
+                    const value = attributes[key];
+                    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                        nodeAttrs[key] = value;
+                    }
+                });
+            }
+
+            this.graph.addNode(id, nodeAttrs);
         });
 
         // Add edges to graph
         edgesData.forEach(({ source, target, weight }) => {
             if (this.graph.hasNode(source) && this.graph.hasNode(target)) {
                 try {
-                    this.graph.addEdge(source, target, { weight });
+                    this.graph.addEdge(source, target, {
+                        weight: Number(weight) || 1
+                    });
                 } catch (error) {
                     // Skip duplicate edges
                     console.warn('Skipping duplicate edge:', source, '->', target);
@@ -263,75 +277,38 @@ class GraphologyNetworkVisualizer {
 
     /**
      * Apply ForceAtlas2 layout using graphology-library (initial layout only)
+     * Note: Skipped on load - user must manually start layout with button
      */
     async applyForceAtlas2Layout() {
-        // Check if graphology-library is available
-        if (typeof graphologyLibrary === 'undefined') {
-            console.warn('ForceAtlas2 layout not available (graphology-library missing)');
-            return;
-        }
-
-        try {
-            console.log('Starting initial ForceAtlas2 layout...');
-
-            // Use synchronous forceAtlas2.assign() instead of FA2Layout to avoid Web Worker issues
-            const forceAtlas2 = graphologyLibrary.forceAtlas2;
-
-            if (!forceAtlas2 || !forceAtlas2.assign) {
-                console.warn('forceAtlas2.assign not available, skipping initial layout');
-                return;
-            }
-
-            const settings = {
-                iterations: 500,
-                getEdgeWeight: 'weight',  // Use 'weight' attribute from edges
-                settings: {
-                    adjustSizes: this.options.fa2Settings.adjustSizes,
-                    barnesHutOptimize: this.options.fa2Settings.barnesHutOptimize,
-                    barnesHutTheta: this.options.fa2Settings.barnesHutTheta,
-                    edgeWeightInfluence: this.options.fa2Settings.edgeWeightInfluence,
-                    gravity: this.options.fa2Settings.gravity,
-                    scalingRatio: this.options.fa2Settings.scalingRatio,
-                    slowDown: this.options.fa2Settings.slowDown,
-                    linLogMode: this.options.fa2Settings.linLogMode
-                }
-            };
-
-            // Run synchronous layout (no Web Worker)
-            console.log('Running 500 iterations of ForceAtlas2 with weighted edges...');
-            forceAtlas2.assign(this.graph, settings);
-
-            // Refresh renderer
-            this.renderer.refresh();
-
-            console.log('Initial ForceAtlas2 layout complete');
-
-        } catch (error) {
-            console.error('Error applying ForceAtlas2 layout:', error);
-        }
+        // Don't auto-apply layout on load - let user control it with buttons
+        // This matches some2net behavior
+        console.log('Initial layout skipped - use Start Layout button to begin');
     }
 
     /**
      * Start ForceAtlas2 layout (continuous)
+     * Matches some2net implementation
      */
     startLayout() {
-        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.forceAtlas2) {
+        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.FA2Layout) {
             console.warn('ForceAtlas2 layout not available');
             return;
         }
 
         try {
-            // Cancel any existing animation frame
-            if (this.layoutAnimationFrame) {
-                cancelAnimationFrame(this.layoutAnimationFrame);
-                this.layoutAnimationFrame = null;
+            console.log('Starting ForceAtlas2 layout...');
+
+            // Create layout instance if it doesn't exist
+            if (!this.fa2Layout) {
+                const FA2Layout = graphologyLibrary.FA2Layout;
+                this.fa2Layout = new FA2Layout(this.graph, {
+                    settings: this.options.fa2Settings
+                });
             }
 
-            // Mark as running
+            // Start continuous layout
+            this.fa2Layout.start();
             this.layoutIsRunning = true;
-
-            // Setup animation loop to run layout iterations
-            this.animateLayout();
 
             console.log('ForceAtlas2 layout started');
         } catch (error) {
@@ -341,49 +318,20 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Animation loop for continuous layout
-     * Runs synchronous ForceAtlas2 iterations on each frame
-     */
-    animateLayout() {
-        if (this.layoutIsRunning && graphologyLibrary && graphologyLibrary.forceAtlas2) {
-            try {
-                // Run 1 iteration of ForceAtlas2 synchronously
-                const forceAtlas2 = graphologyLibrary.forceAtlas2;
-                forceAtlas2.assign(this.graph, {
-                    iterations: 1,
-                    getEdgeWeight: 'weight',  // Use 'weight' attribute from edges
-                    settings: this.options.fa2Settings
-                });
-
-                // Refresh renderer
-                this.renderer.refresh();
-
-                // Schedule next frame
-                this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
-            } catch (error) {
-                console.error('Error in layout animation:', error);
-                this.layoutIsRunning = false;
-            }
-        }
-    }
-
-    /**
      * Stop ForceAtlas2 layout
+     * Matches some2net implementation
      */
     stopLayout() {
-        this.layoutIsRunning = false;
-
-        // Cancel animation frame
-        if (this.layoutAnimationFrame) {
-            cancelAnimationFrame(this.layoutAnimationFrame);
-            this.layoutAnimationFrame = null;
+        if (this.layoutIsRunning && this.fa2Layout) {
+            console.log('Stopping ForceAtlas2 layout...');
+            this.fa2Layout.stop();
+            this.layoutIsRunning = false;
         }
-
-        console.log('ForceAtlas2 layout stopped');
     }
 
     /**
      * Update layout settings (kills and recreates layout if running)
+     * Matches some2net implementation
      */
     updateLayoutSettings(newSettings) {
         // Update stored settings
@@ -392,15 +340,19 @@ class GraphologyNetworkVisualizer {
             ...newSettings
         };
 
-        // If layout is running, restart it with new settings
-        const wasRunning = this.layoutIsRunning;
+        // If layout exists, recreate with new settings
+        if (this.fa2Layout) {
+            this.fa2Layout.kill();  // Destroy current layout
 
-        if (wasRunning) {
-            this.stopLayout();
-            // Small delay before restart
-            setTimeout(() => {
-                this.startLayout();
-            }, 100);
+            const FA2Layout = graphologyLibrary.FA2Layout;
+            this.fa2Layout = new FA2Layout(this.graph, {
+                settings: this.options.fa2Settings
+            });
+
+            // Restart if it was running
+            if (this.layoutIsRunning) {
+                this.fa2Layout.start();
+            }
         }
 
         console.log('Layout settings updated:', this.options.fa2Settings);
