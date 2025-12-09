@@ -108,15 +108,21 @@ def generate_network_task(
                         backboning_config=backboning_config,
                     )
 
-                elif network_type == "website_noun":
+                elif network_type in ("website_noun", "website_keyword"):
                     self.update_state(
                         state="PROGRESS",
                         meta={
                             "current": 30,
                             "total": 100,
-                            "status": "Generating website-noun network...",
+                            "status": "Generating website-keyword network...",
                         },
                     )
+
+                    # Parse keyword config if present
+                    keyword_config = None
+                    if config.get("keyword_config"):
+                        from backend.schemas.analysis import KeywordExtractionConfig
+                        keyword_config = KeywordExtractionConfig(**config["keyword_config"])
 
                     network = await service.generate_website_noun_network(
                         user_id=user_id,
@@ -127,6 +133,34 @@ def generate_network_task(
                         min_tfidf_score=config.get("min_tfidf_score", 0.0),
                         aggregate_by_domain=config.get("aggregate_by_domain", True),
                         backboning_config=backboning_config,
+                        keyword_config=keyword_config,
+                    )
+
+                elif network_type == "website_ner":
+                    self.update_state(
+                        state="PROGRESS",
+                        meta={
+                            "current": 30,
+                            "total": 100,
+                            "status": "Generating website-NER network...",
+                        },
+                    )
+
+                    # Parse NER config if present
+                    ner_config = None
+                    if config.get("ner_config"):
+                        from backend.schemas.analysis import NERExtractionConfig
+                        ner_config = NERExtractionConfig(**config["ner_config"])
+
+                    network = await service.generate_website_ner_network(
+                        user_id=user_id,
+                        name=name,
+                        session_ids=session_ids,
+                        top_n_entities=config.get("top_n_entities", 50),
+                        min_confidence=config.get("min_confidence", 0.85),
+                        aggregate_by_domain=config.get("aggregate_by_domain", True),
+                        backboning_config=backboning_config,
+                        ner_config=ner_config,
                     )
 
                 elif network_type == "website_concept":
