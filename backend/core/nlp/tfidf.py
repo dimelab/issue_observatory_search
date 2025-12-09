@@ -310,10 +310,12 @@ class TFIDFCalculator:
             else:
                 tfidf_scores[term] = tf * idf
 
+        unigram_count = len([t for t in tfidf_scores if ' ' not in t])
+        bigram_count = len([t for t in tfidf_scores if ' ' in t])
+        bigram_text = f', {bigram_count} bigrams' if self.use_bigrams else ''
         logger.debug(
             f"Calculated TF-IDF for {len(tfidf_scores)} unique terms "
-            f"({len([t for t in tfidf_scores if ' ' not in t])} unigrams"
-            f"{f', {len([t for t in tfidf_scores if \" \" in t])} bigrams' if self.use_bigrams else ''})"
+            f"({unigram_count} unigrams{bigram_text})"
         )
 
         return tfidf_scores
