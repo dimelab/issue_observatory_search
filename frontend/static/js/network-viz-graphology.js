@@ -2,10 +2,10 @@
  * Network Visualization using Graphology + Sigma.js
  *
  * New in v6.0.0: Modern network visualization replacing Vis.js
- * Based on some2net visualization implementation patterns.
+ * Based on some2net visualization implementation.
  *
  * Features:
- * - ForceAtlas2 layout via Graphology
+ * - ForceAtlas2 layout via Graphology Library
  * - Interactive rendering via Sigma.js
  * - GEXF file support
  * - Node coloring by type
@@ -27,34 +27,27 @@ class GraphologyNetworkVisualizer {
         this.graph = new graphology.Graph({ type: 'undirected' });
         this.renderer = null;
         this.rawData = null;
+        this.fa2Layout = null;
 
         // Configuration (similar to some2net)
         this.options = {
-            layout: 'forceAtlas2',
             fa2Settings: {
-                iterations: 500,
-                settings: {
-                    barnesHutOptimize: true,
-                    barnesHutTheta: 0.5,
-                    scalingRatio: 2,
-                    gravity: 1,
-                    slowDown: 10,
-                    linLogMode: false,
-                    outboundAttractionDistribution: false,
-                    adjustSizes: false,
-                    edgeWeightInfluence: 1
-                }
+                adjustSizes: false,
+                barnesHutOptimize: true,
+                barnesHutTheta: 1.2,
+                edgeWeightInfluence: 1.0,
+                gravity: 1.0,
+                scalingRatio: 10,
+                slowDown: 1,
+                linLogMode: false
             },
             sigma: {
                 renderEdgeLabels: false,
-                defaultNodeColor: '#6B7280',
-                defaultEdgeColor: '#E5E7EB',
-                labelFont: 'Arial',
+                defaultNodeColor: '#999',
+                defaultEdgeColor: '#ccc',
                 labelSize: 14,
-                labelWeight: 'normal',
-                labelColor: { color: '#000' },
-                minCameraRatio: 0.1,
-                maxCameraRatio: 10
+                labelWeight: 'bold',
+                labelColor: { color: '#000' }
             },
             ...options
         };
@@ -171,7 +164,7 @@ class GraphologyNetworkVisualizer {
             const attributes = this.parseNodeAttributes(xmlNode);
             const nodeType = attributes.node_type || attributes.type || 'default';
 
-            // Parse position if available
+            // Parse position if available (from GEXF viz namespace)
             let x, y;
             const vizPosition = xmlNode.querySelector('viz\\:position, position');
             if (vizPosition) {
@@ -206,6 +199,12 @@ class GraphologyNetworkVisualizer {
         // Store raw data for filtering
         this.rawData = { nodes: nodesData, edges: edgesData };
 
+        // Apply initial circular layout if no positions
+        const hasPositions = nodesData.some(n => n.x !== undefined && n.y !== undefined);
+        if (!hasPositions) {
+            this.applyCircularLayout(nodesData);
+        }
+
         // Add nodes to graph
         nodesData.forEach(({ id, label, nodeType, attributes, x, y }) => {
             this.graph.addNode(id, {
@@ -213,8 +212,8 @@ class GraphologyNetworkVisualizer {
                 size: 10,
                 color: this.getNodeColor(nodeType),
                 node_type: nodeType,
-                x: x || Math.random() * 100,
-                y: y || Math.random() * 100,
+                x: x !== undefined ? x : 0,
+                y: y !== undefined ? y : 0,
                 ...attributes
             });
         });
@@ -231,17 +230,80 @@ class GraphologyNetworkVisualizer {
             }
         });
 
-        // Apply ForceAtlas2 layout if positions not provided
-        const hasPositions = nodesData.some(n => n.x !== undefined && n.y !== undefined);
+        console.log(`Loaded ${nodesData.length} nodes, ${edgesData.length} edges`);
+
+        // Apply ForceAtlas2 layout if no positions
         if (!hasPositions) {
-            await this.applyLayout();
+            await this.applyForceAtlas2Layout();
         }
 
         // Refresh renderer
         this.renderer.refresh();
 
-        // Fit to viewport after a brief delay
-        setTimeout(() => this.fit(), 500);
+        // Fit to viewport
+        setTimeout(() => this.fit(), 100);
+    }
+
+    /**
+     * Apply circular layout to nodes (initial layout before ForceAtlas2)
+     */
+    applyCircularLayout(nodesData) {
+        const n = nodesData.length;
+        const radius = 100;
+
+        nodesData.forEach((node, i) => {
+            const angle = (2 * Math.PI * i) / n;
+            node.x = Math.cos(angle) * radius;
+            node.y = Math.sin(angle) * radius;
+        });
+
+        console.log('Applied circular layout');
+    }
+
+    /**
+     * Apply ForceAtlas2 layout using graphology-library
+     */
+    async applyForceAtlas2Layout() {
+        // Check if graphology-library is available
+        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.FA2Layout) {
+            console.warn('ForceAtlas2 layout not available (graphology-library missing)');
+            return;
+        }
+
+        try {
+            console.log('Starting ForceAtlas2 layout...');
+
+            // Create FA2Layout instance
+            const FA2Layout = graphologyLibrary.FA2Layout;
+            this.fa2Layout = new FA2Layout(this.graph, {
+                settings: this.options.fa2Settings
+            });
+
+            // Run layout for a fixed number of iterations
+            const iterations = 500;
+
+            // Start the layout
+            this.fa2Layout.start();
+
+            // Run iterations
+            for (let i = 0; i < iterations; i++) {
+                // The layout runs automatically, just need to wait
+                if (i % 100 === 0) {
+                    console.log(`ForceAtlas2 iteration ${i}/${iterations}`);
+                    // Refresh renderer periodically to show progress
+                    this.renderer.refresh();
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            }
+
+            // Stop the layout
+            this.fa2Layout.stop();
+
+            console.log('ForceAtlas2 layout complete');
+
+        } catch (error) {
+            console.error('Error applying ForceAtlas2 layout:', error);
+        }
     }
 
     /**
@@ -255,30 +317,6 @@ class GraphologyNetworkVisualizer {
             attributes[key] = value;
         });
         return attributes;
-    }
-
-    /**
-     * Apply ForceAtlas2 layout (based on some2net)
-     */
-    async applyLayout() {
-        if (!window.forceAtlas2 || !window.forceAtlas2.assign) {
-            console.warn('ForceAtlas2 layout not available, using random positions');
-            return;
-        }
-
-        try {
-            const { iterations, settings } = this.options.fa2Settings;
-
-            // Run ForceAtlas2
-            forceAtlas2.assign(this.graph, {
-                iterations,
-                settings
-            });
-
-            console.log('ForceAtlas2 layout applied');
-        } catch (error) {
-            console.error('Error applying ForceAtlas2 layout:', error);
-        }
     }
 
     /**
@@ -354,8 +392,8 @@ class GraphologyNetworkVisualizer {
                 size: 10,
                 color: this.getNodeColor(nodeType),
                 node_type: nodeType,
-                x: x || Math.random() * 100,
-                y: y || Math.random() * 100,
+                x: x !== undefined ? x : 0,
+                y: y !== undefined ? y : 0,
                 ...attributes
             });
         });
@@ -390,8 +428,8 @@ class GraphologyNetworkVisualizer {
                     size: 10,
                     color: this.getNodeColor(nodeType),
                     node_type: nodeType,
-                    x: x || Math.random() * 100,
-                    y: y || Math.random() * 100,
+                    x: x !== undefined ? x : 0,
+                    y: y !== undefined ? y : 0,
                     ...attributes
                 });
             });
@@ -539,6 +577,12 @@ class GraphologyNetworkVisualizer {
      * Destroy renderer
      */
     destroy() {
+        // Stop ForceAtlas2 if running
+        if (this.fa2Layout) {
+            this.fa2Layout.kill();
+            this.fa2Layout = null;
+        }
+
         if (this.renderer) {
             this.renderer.kill();
             this.renderer = null;

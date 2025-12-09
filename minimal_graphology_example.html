@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Minimal Graphology + Sigma.js Example</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+        }
+        #container {
+            width: 100%;
+            height: 600px;
+            background: #fafafa;
+        }
+        #controls {
+            padding: 10px;
+            background: white;
+            border-bottom: 1px solid #ddd;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+    </style>
+    <!-- Load libraries from CDN -->
+    <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+    <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/graphology-library@0.8.0/dist/graphology-library.min.js"></script>
+</head>
+<body>
+    <div id="controls">
+        <button id="start-layout">Start Layout</button>
+        <button id="stop-layout">Stop Layout</button>
+    </div>
+    <div id="container"></div>
+
+    <script>
+        // Sample graph data
+        const graphData = {
+            "nodes": [
+                {"key": "1", "label": "Node 1", "size": 5, "color": "#1f77b4"},
+                {"key": "2", "label": "Node 2", "size": 8, "color": "#ff7f0e"},
+                {"key": "3", "label": "Node 3", "size": 6, "color": "#2ca02c"},
+                {"key": "4", "label": "Node 4", "size": 7, "color": "#d62728"},
+                {"key": "5", "label": "Node 5", "size": 5, "color": "#9467bd"}
+            ],
+            "edges": [
+                {"source": "1", "target": "2", "weight": 5},
+                {"source": "2", "target": "3", "weight": 3},
+                {"source": "3", "target": "4", "weight": 4},
+                {"source": "4", "target": "1", "weight": 2},
+                {"source": "1", "target": "5", "weight": 3}
+            ]
+        };
+
+        // Step 1: Create graphology graph
+        const graph = new graphology.DirectedGraph();
+
+        // Step 2: Add nodes with initial circular layout
+        const nodeCount = graphData.nodes.length;
+        graphData.nodes.forEach((node, index) => {
+            const angle = (2 * Math.PI * index) / nodeCount;
+            const radius = 0.5;
+
+            graph.addNode(node.key, {
+                label: node.label,
+                size: node.size,
+                color: node.color,
+                x: Math.cos(angle) * radius,
+                y: Math.sin(angle) * radius
+            });
+        });
+
+        // Step 3: Add edges
+        graphData.edges.forEach((edge, i) => {
+            graph.addEdge(edge.source, edge.target, {
+                weight: edge.weight
+            });
+        });
+
+        // Step 4: Initialize Sigma.js renderer
+        const container = document.getElementById('container');
+        const renderer = new Sigma(graph, container, {
+            renderEdgeLabels: false,
+            defaultNodeColor: '#999',
+            defaultEdgeColor: '#ccc'
+        });
+
+        // Step 5: Setup ForceAtlas2 layout
+        const FA2Layout = graphologyLibrary.FA2Layout;
+
+        let fa2Layout = null;
+        let layoutRunning = false;
+
+        const fa2Settings = {
+            adjustSizes: false,
+            barnesHutOptimize: true,
+            gravity: 1.0,
+            scalingRatio: 10
+        };
+
+        // Start layout button
+        document.getElementById('start-layout').addEventListener('click', () => {
+            if (!layoutRunning) {
+                if (!fa2Layout) {
+                    fa2Layout = new FA2Layout(graph, {
+                        settings: fa2Settings
+                    });
+                }
+                fa2Layout.start();
+                layoutRunning = true;
+                console.log('Layout started');
+            }
+        });
+
+        // Stop layout button
+        document.getElementById('stop-layout').addEventListener('click', () => {
+            if (layoutRunning && fa2Layout) {
+                fa2Layout.stop();
+                layoutRunning = false;
+                console.log('Layout stopped');
+            }
+        });
+
+        console.log('Ready! Click "Start Layout" to begin ForceAtlas2.');
+    </script>
+</body>
+</html>

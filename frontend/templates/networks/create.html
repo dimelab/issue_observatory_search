@@ -203,9 +203,7 @@
                     </label>
                     <select x-model="config.keyword_method"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="noun">Nouns Only (Original)</option>
-                        <option value="all_pos">All Keywords (Nouns, Verbs, Adjectives)</option>
-                        <option value="tfidf">TF-IDF with Bigrams</option>
+                        <option value="tfidf">TF-IDF</option>
                         <option value="rake">RAKE (Keyword Phrases)</option>
                     </select>
                     <p class="mt-1 text-xs text-gray-500">Choose the method for extracting keywords from content</p>
@@ -213,6 +211,15 @@
 
                 <!-- TF-IDF Options -->
                 <div x-show="config.keyword_method === 'tfidf'" x-cloak class="pl-4 border-l-2 border-blue-300 space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Keyword Type</label>
+                        <select x-model="config.tfidf_keyword_type"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="noun">Nouns Only</option>
+                            <option value="all_pos">All Keywords (Nouns, Verbs, Adjectives)</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500">Choose which parts of speech to extract</p>
+                    </div>
                     <div>
                         <label class="flex items-center">
                             <input type="checkbox"
@@ -257,15 +264,6 @@
                            min="1" max="500"
                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <p class="mt-1 text-xs text-gray-500">Maximum number of keywords to include per website (1-500)</p>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Minimum TF-IDF Score</label>
-                    <input type="number"
-                           x-model.number="config.min_tfidf_score"
-                           min="0" max="1" step="0.01"
-                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <p class="mt-1 text-xs text-gray-500">Filter out keywords with low importance scores (0.0-1.0)</p>
                 </div>
 
                 <div>
@@ -404,9 +402,9 @@
                 weight_method: 'inverse_rank',
                 aggregate_by_domain: true,
                 // Website-Keyword options
-                keyword_method: 'noun',
+                keyword_method: 'tfidf',
+                tfidf_keyword_type: 'noun',
                 top_n_nouns: 50,
-                min_tfidf_score: 0.0,
                 // TF-IDF options
                 use_bigrams: false,
                 idf_weight: 1.0,
@@ -486,20 +484,22 @@
                         payload.aggregate_by_domain = this.config.aggregate_by_domain;
                     } else if (this.networkType === 'website_noun') {
                         payload.top_n_nouns = this.config.top_n_nouns;
-                        payload.min_tfidf_score = this.config.min_tfidf_score;
                         payload.aggregate_by_domain = this.config.aggregate_by_domain;
 
                         // v6.0.0: Keyword extraction configuration
-                        payload.keyword_config = {
-                            method: this.config.keyword_method
-                        };
-
-                        // Add method-specific options
                         if (this.config.keyword_method === 'tfidf') {
-                            payload.keyword_config.use_bigrams = this.config.use_bigrams;
-                            payload.keyword_config.idf_weight = this.config.idf_weight;
+                            // TF-IDF method with keyword type selection
+                            payload.keyword_config = {
+                                method: this.config.tfidf_keyword_type,  // 'noun' or 'all_pos'
+                                use_bigrams: this.config.use_bigrams,
+                                idf_weight: this.config.idf_weight
+                            };
                         } else if (this.config.keyword_method === 'rake') {
-                            payload.keyword_config.max_phrase_length = this.config.max_phrase_length;
+                            // RAKE method
+                            payload.keyword_config = {
+                                method: 'rake',
+                                max_phrase_length: this.config.max_phrase_length
+                            };
                         }
                     } else if (this.networkType === 'website_ner') {
                         // v6.0.0: NER network configuration
