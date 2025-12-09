@@ -363,14 +363,16 @@
             startLayout() {
                 if (this.visualizer && typeof this.visualizer.startLayout === 'function') {
                     this.visualizer.startLayout();
-                    this.layoutRunning = true;
+                    // Sync state from visualizer
+                    this.layoutRunning = this.visualizer.layoutIsRunning || false;
                 }
             },
 
             stopLayout() {
                 if (this.visualizer && typeof this.visualizer.stopLayout === 'function') {
                     this.visualizer.stopLayout();
-                    this.layoutRunning = false;
+                    // Sync state from visualizer
+                    this.layoutRunning = this.visualizer.layoutIsRunning || false;
                 }
             },
 

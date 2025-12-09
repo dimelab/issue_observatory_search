@@ -28,6 +28,8 @@ class GraphologyNetworkVisualizer {
         this.renderer = null;
         this.rawData = null;
         this.fa2Layout = null;
+        this.layoutIsRunning = false;
+        this.layoutAnimationFrame = null;
 
         // Configuration (similar to some2net)
         this.options = {
@@ -296,8 +298,10 @@ class GraphologyNetworkVisualizer {
                 }
             }
 
-            // Stop the layout
+            // Stop and kill the layout
             this.fa2Layout.stop();
+            this.fa2Layout.kill();
+            this.fa2Layout = null;
 
             console.log('Initial ForceAtlas2 layout complete');
 
@@ -318,7 +322,18 @@ class GraphologyNetworkVisualizer {
         try {
             // Kill existing layout if any
             if (this.fa2Layout) {
-                this.fa2Layout.kill();
+                try {
+                    this.fa2Layout.stop();
+                    this.fa2Layout.kill();
+                } catch (e) {
+                    // Ignore errors if already stopped
+                }
+            }
+
+            // Cancel any existing animation frame
+            if (this.layoutAnimationFrame) {
+                cancelAnimationFrame(this.layoutAnimationFrame);
+                this.layoutAnimationFrame = null;
             }
 
             // Create new FA2Layout instance with current settings
@@ -326,6 +341,9 @@ class GraphologyNetworkVisualizer {
             this.fa2Layout = new FA2Layout(this.graph, {
                 settings: this.options.fa2Settings
             });
+
+            // Mark as running
+            this.layoutIsRunning = true;
 
             // Start continuous layout
             this.fa2Layout.start();
@@ -336,6 +354,7 @@ class GraphologyNetworkVisualizer {
             console.log('ForceAtlas2 layout started');
         } catch (error) {
             console.error('Error starting layout:', error);
+            this.layoutIsRunning = false;
         }
     }
 
@@ -343,7 +362,7 @@ class GraphologyNetworkVisualizer {
      * Animation loop for continuous layout
      */
     animateLayout() {
-        if (this.fa2Layout && this.fa2Layout.isRunning && this.fa2Layout.isRunning()) {
+        if (this.layoutIsRunning && this.fa2Layout) {
             this.renderer.refresh();
             this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
         }
@@ -353,16 +372,22 @@ class GraphologyNetworkVisualizer {
      * Stop ForceAtlas2 layout
      */
     stopLayout() {
-        if (this.fa2Layout) {
-            this.fa2Layout.stop();
+        this.layoutIsRunning = false;
 
-            // Cancel animation frame
-            if (this.layoutAnimationFrame) {
-                cancelAnimationFrame(this.layoutAnimationFrame);
-                this.layoutAnimationFrame = null;
+        if (this.fa2Layout) {
+            try {
+                this.fa2Layout.stop();
+            } catch (e) {
+                console.warn('Error stopping layout:', e);
             }
 
             console.log('ForceAtlas2 layout stopped');
+        }
+
+        // Cancel animation frame
+        if (this.layoutAnimationFrame) {
+            cancelAnimationFrame(this.layoutAnimationFrame);
+            this.layoutAnimationFrame = null;
         }
     }
 
@@ -377,7 +402,7 @@ class GraphologyNetworkVisualizer {
         };
 
         // If layout is running, restart it with new settings
-        const wasRunning = this.fa2Layout && this.fa2Layout.isRunning && this.fa2Layout.isRunning();
+        const wasRunning = this.layoutIsRunning;
 
         if (wasRunning) {
             this.stopLayout();
