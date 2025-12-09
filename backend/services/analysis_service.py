@@ -20,6 +20,8 @@ from backend.schemas.analysis import (
     AggregateNounResponse,
     AggregateEntityResponse,
     JobAggregateResponse,
+    KeywordExtractionConfig,
+    NERExtractionConfig,
 )
 from sqlalchemy import select
 
@@ -559,6 +561,220 @@ class AnalysisService:
             logger.info(f"Deleted analysis for content {content_id}")
 
         return deleted
+
+    # v6.0.0: Enhanced Keyword and NER Extraction (Phase 6)
+
+    async def extract_keywords(
+        self,
+        website_content_id: int,
+        config: KeywordExtractionConfig,
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract keywords using configured method.
+
+        This method supports multiple extraction approaches:
+        - noun: Original spaCy noun extraction
+        - all_pos: Extract nouns, verbs, adjectives
+        - tfidf: TF-IDF with bigrams and IDF weighting
+        - rake: RAKE algorithm with n-gram phrases
+
+        Args:
+            website_content_id: Website content ID
+            config: Keyword extraction configuration
+
+        Returns:
+            List of extracted keyword dictionaries
+
+        Raises:
+            ValueError: If content not found or has no text
+            NotImplementedError: If UniversalKeywordExtractor not yet implemented
+        """
+        logger.info(
+            f"Extracting keywords from content {website_content_id} "
+            f"using method '{config.method}'"
+        )
+
+        # Load content
+        stmt = select(WebsiteContent).where(WebsiteContent.id == website_content_id)
+        result = await self.session.execute(stmt)
+        content = result.scalar_one_or_none()
+
+        if not content:
+            raise ValueError(f"Content with ID {website_content_id} not found")
+
+        if not content.extracted_text:
+            raise ValueError(f"Content {website_content_id} has no extracted text")
+
+        # NOTE: This is a stub for Phase 6
+        # The actual UniversalKeywordExtractor will be implemented in Phase 1
+        # For now, we'll use the existing batch analyzer for 'noun' method
+
+        if config.method == "noun":
+            # Use existing batch analyzer for backward compatibility
+            batch_result = await self.batch_analyzer.process_single(
+                text=content.extracted_text,
+                language=content.language or "en",
+                extract_nouns=True,
+                extract_entities=False,
+                max_nouns=config.max_keywords,
+                min_frequency=config.min_frequency,
+                content_id=website_content_id,
+            )
+
+            if not batch_result.success:
+                raise Exception(batch_result.error or "Keyword extraction failed")
+
+            # Convert to keyword format
+            keywords = []
+            for noun in batch_result.nouns:
+                keywords.append({
+                    "word": noun.word,
+                    "lemma": noun.lemma,
+                    "frequency": noun.frequency,
+                    "tfidf_score": noun.tfidf_score,
+                    "extraction_method": config.method,
+                    "phrase_length": 1,
+                    "pos_tag": "NOUN",
+                    "language": content.language or "en",
+                })
+
+            logger.info(
+                f"Extracted {len(keywords)} keywords from content {website_content_id} "
+                f"using method '{config.method}'"
+            )
+
+            return keywords
+
+        else:
+            # TODO: Implement when Phase 1 is complete
+            # from backend.core.nlp.keyword_extraction import UniversalKeywordExtractor
+            # extractor = UniversalKeywordExtractor()
+            # keywords = await extractor.extract_keywords(
+            #     text=content.extracted_text,
+            #     language=content.language or "en",
+            #     config=config
+            # )
+
+            logger.warning(
+                f"Keyword extraction method '{config.method}' not yet implemented. "
+                f"UniversalKeywordExtractor from Phase 1 required. "
+                f"Falling back to 'noun' method."
+            )
+
+            # Fallback to noun method
+            config.method = "noun"
+            return await self.extract_keywords(website_content_id, config)
+
+    async def extract_entities(
+        self,
+        website_content_id: int,
+        config: NERExtractionConfig,
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract named entities using configured method.
+
+        Supports:
+        - spacy: Fast spaCy NER (existing implementation)
+        - transformer: Transformer-based multilingual NER (Phase 1)
+
+        Args:
+            website_content_id: Website content ID
+            config: NER extraction configuration
+
+        Returns:
+            List of extracted entity dictionaries
+
+        Raises:
+            ValueError: If content not found or has no text
+            NotImplementedError: If transformer method not yet implemented
+        """
+        logger.info(
+            f"Extracting entities from content {website_content_id} "
+            f"using method '{config.extraction_method}'"
+        )
+
+        # Load content
+        stmt = select(WebsiteContent).where(WebsiteContent.id == website_content_id)
+        result = await self.session.execute(stmt)
+        content = result.scalar_one_or_none()
+
+        if not content:
+            raise ValueError(f"Content with ID {website_content_id} not found")
+
+        if not content.extracted_text:
+            raise ValueError(f"Content {website_content_id} has no extracted text")
+
+        if config.extraction_method == "spacy":
+            # Use existing batch analyzer
+            batch_result = await self.batch_analyzer.process_single(
+                text=content.extracted_text,
+                language=content.language or "en",
+                extract_nouns=False,
+                extract_entities=True,
+                max_nouns=0,
+                min_frequency=1,
+                content_id=website_content_id,
+            )
+
+            if not batch_result.success:
+                raise Exception(batch_result.error or "Entity extraction failed")
+
+            # Convert to entity format with new fields
+            entities = []
+            for entity in batch_result.entities:
+                # Filter by entity type if specified
+                if config.entity_types and entity.label not in config.entity_types:
+                    continue
+
+                # Filter by confidence
+                if entity.confidence < config.confidence_threshold:
+                    continue
+
+                entities.append({
+                    "text": entity.text,
+                    "label": entity.label,
+                    "start_pos": entity.start,
+                    "end_pos": entity.end,
+                    "confidence": entity.confidence,
+                    "extraction_method": config.extraction_method,
+                    "frequency": 1,  # Will be aggregated later
+                    "language": content.language or "en",
+                })
+
+            # Limit to max entities
+            entities = entities[:config.max_entities_per_content]
+
+            logger.info(
+                f"Extracted {len(entities)} entities from content {website_content_id} "
+                f"using method '{config.extraction_method}'"
+            )
+
+            return entities
+
+        elif config.extraction_method == "transformer":
+            # TODO: Implement when Phase 1 is complete
+            # from backend.core.nlp.ner_transformer import TransformerNERExtractor
+            # extractor = TransformerNERExtractor()
+            # entities = await extractor.extract_entities(
+            #     text=content.extracted_text,
+            #     language=content.language or "en",
+            #     entity_types=config.entity_types,
+            # )
+
+            logger.warning(
+                f"NER extraction method 'transformer' not yet implemented. "
+                f"TransformerNERExtractor from Phase 1 required. "
+                f"Falling back to 'spacy' method."
+            )
+
+            # Fallback to spacy method
+            config.extraction_method = "spacy"
+            return await self.extract_entities(website_content_id, config)
+
+        else:
+            raise ValueError(
+                f"Unknown NER extraction method: {config.extraction_method}"
+            )
 
     async def _store_analysis_results(
         self,

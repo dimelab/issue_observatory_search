@@ -4,6 +4,8 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
+<!-- v6.0.0: Graphology visualizer (default), Vis.js kept for backward compatibility -->
+<script src="/static/js/network-viz-graphology.js"></script>
 <script src="/static/js/network-viz.js"></script>
 <style>
     #network-container {
@@ -246,10 +248,18 @@
             },
 
             init() {
-                // Initialize network visualizer
-                this.visualizer = new NetworkVisualizer('network-container', {
-                    physics: true
-                });
+                // v6.0.0: Use Graphology visualizer by default, fallback to Vis.js if not available
+                const useGraphology = typeof GraphologyNetworkVisualizer !== 'undefined';
+
+                if (useGraphology) {
+                    console.log('Using Graphology + Sigma.js visualizer (v6.0.0)');
+                    this.visualizer = new GraphologyNetworkVisualizer('network-container');
+                } else {
+                    console.log('Falling back to Vis.js visualizer');
+                    this.visualizer = new NetworkVisualizer('network-container', {
+                        physics: true
+                    });
+                }
 
                 // Override callbacks
                 this.visualizer.onNodeSelect = (node) => {
@@ -260,15 +270,18 @@
                     this.selectedNode = null;
                 };
 
-                this.visualizer.onStabilizationProgress = (progress) => {
-                    this.stabilizing = true;
-                    this.stabilizationProgress = progress;
-                };
+                // Stabilization callbacks (Vis.js only)
+                if (!useGraphology) {
+                    this.visualizer.onStabilizationProgress = (progress) => {
+                        this.stabilizing = true;
+                        this.stabilizationProgress = progress;
+                    };
 
-                this.visualizer.onStabilizationComplete = () => {
-                    this.stabilizing = false;
-                    this.updateStats();
-                };
+                    this.visualizer.onStabilizationComplete = () => {
+                        this.stabilizing = false;
+                        this.updateStats();
+                    };
+                }
 
                 // Load network data
                 this.loadNetwork();
@@ -310,7 +323,10 @@
             },
 
             togglePhysics() {
-                this.physics = this.visualizer.togglePhysics();
+                // Only available for Vis.js visualizer
+                if (typeof this.visualizer.togglePhysics === 'function') {
+                    this.physics = this.visualizer.togglePhysics();
+                }
             },
 
             zoomIn() {

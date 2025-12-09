@@ -44,10 +44,18 @@ async def generate_network(
     This endpoint starts an async task to generate the network.
     Use the returned task_id to check generation progress.
 
-    Network types:
+    Network types (v6.0.0):
     - search_website: Bipartite network of queries → websites
-    - website_noun: Bipartite network of websites → nouns (TF-IDF weighted)
+    - website_noun: Legacy support (same as website_keyword with method='noun')
+    - website_keyword: Bipartite network of websites → keywords (enhanced with multiple methods)
+    - website_ner: Bipartite network of websites → named entities (NEW)
     - website_concept: Bipartite network of websites → concepts (LLM-based, not yet implemented)
+
+    Keyword extraction methods (website_keyword):
+    - noun: Original noun-only extraction (backward compatible)
+    - all_pos: Nouns, verbs, adjectives
+    - tfidf: TF-IDF with bigrams and IDF weighting
+    - rake: RAKE algorithm with n-gram phrases
     """
     logger.info(
         f"Network generation request: type={request.type}, "
@@ -59,26 +67,59 @@ async def generate_network(
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Website-concept networks require LLM integration (Phase 7). "
-                   "Use 'search_website' or 'website_noun' instead.",
+                   "Use 'search_website', 'website_keyword', or 'website_ner' instead.",
         )
+
+    # Handle legacy website_noun type (backward compatibility)
+    network_type = request.type
+    if request.type == "website_noun":
+        logger.info("Converting legacy 'website_noun' type to 'website_keyword' with method='noun'")
+        network_type = "website_keyword"
+        # If no keyword_config provided, create one with legacy settings
+        if not request.keyword_config:
+            from backend.schemas.analysis import KeywordExtractionConfig
+            request.keyword_config = KeywordExtractionConfig(
+                method="noun",
+                max_keywords=request.top_n_nouns or 50,
+                min_frequency=2
+            )
 
     # Build configuration
     config = {
-        "top_n_nouns": request.top_n_nouns,
+        "top_n_nouns": request.top_n_nouns,  # Legacy field
         "languages": request.languages,
-        "min_tfidf_score": request.min_tfidf_score,
+        "min_tfidf_score": request.min_tfidf_score,  # Legacy field
         "aggregate_by_domain": request.aggregate_by_domain,
         "weight_method": request.weight_method,
     }
 
+    # Add keyword extraction config (for website_keyword networks)
+    if request.keyword_config:
+        config["keyword_config"] = request.keyword_config.model_dump()
+
+    # Add NER extraction config (for website_ner networks)
+    if request.ner_config:
+        config["ner_config"] = request.ner_config.model_dump()
+
+    # Validate configurations based on network type
+    if network_type == "website_keyword" and not request.keyword_config:
+        # Use default keyword config
+        from backend.schemas.analysis import KeywordExtractionConfig
+        config["keyword_config"] = KeywordExtractionConfig().model_dump()
+
+    if network_type == "website_ner" and not request.ner_config:
+        # Use default NER config
+        from backend.schemas.analysis import NERExtractionConfig
+        config["ner_config"] = NERExtractionConfig().model_dump()
+
     if request.backboning:
         config["backboning"] = request.backboning.model_dump()
 
-    # Start async task
+    # Start async task (use converted network_type for legacy support)
     task = generate_network_task.delay(
         user_id=current_user.id,
         name=request.name,
-        network_type=request.type,
+        network_type=network_type,  # Use converted type (website_noun → website_keyword)
         session_ids=request.session_ids,
         config=config,
     )

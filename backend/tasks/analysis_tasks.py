@@ -9,6 +9,7 @@ from backend.config import settings
 from backend.services.analysis_service import AnalysisService
 from backend.models.website import WebsiteContent
 from backend.models.scraping import ScrapingJob
+from backend.schemas.analysis import KeywordExtractionConfig, NERExtractionConfig
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -386,6 +387,232 @@ def cleanup_old_analyses_task(self, days_old: int = 30) -> Dict[str, Any]:
     asyncio.set_event_loop(loop)
     try:
         result = loop.run_until_complete(_run_cleanup())
+        return result
+    finally:
+        loop.close()
+
+
+# v6.0.0: Enhanced Keyword and NER Extraction Tasks (Phase 6)
+
+
+@celery_app.task(
+    bind=True,
+    base=AnalysisTask,
+    name="backend.tasks.analysis_tasks.extract_keywords_batch_task",
+    soft_time_limit=1800,  # 30 minutes
+    time_limit=3600,  # 1 hour
+)
+def extract_keywords_batch_task(
+    self,
+    website_content_ids: List[int],
+    config: dict,
+    user_id: int,
+) -> Dict[str, Any]:
+    """
+    Extract keywords from multiple website contents in batch.
+
+    This task uses the enhanced keyword extraction methods (noun, all_pos, tfidf, rake)
+    based on the configuration provided.
+
+    Args:
+        website_content_ids: List of website content IDs
+        config: Keyword extraction configuration dict
+        user_id: User ID (for tracking/logging)
+
+    Returns:
+        Dictionary with batch statistics
+    """
+    import asyncio
+
+    logger.info(
+        f"Starting batch keyword extraction for {len(website_content_ids)} contents "
+        f"(user_id={user_id})"
+    )
+
+    # Update task state
+    self.update_state(
+        state="PROCESSING",
+        meta={
+            "total_contents": len(website_content_ids),
+            "user_id": user_id,
+            "status": "extracting keywords",
+        },
+    )
+
+    async def _run_batch_extraction():
+        """Run the batch keyword extraction in async context."""
+        async with AsyncSessionLocal() as session:
+            try:
+                service = AnalysisService(session)
+
+                # Parse config
+                keyword_config = KeywordExtractionConfig(**config)
+
+                # Extract keywords for each content
+                successful = 0
+                failed = 0
+                total_keywords = 0
+
+                for content_id in website_content_ids:
+                    try:
+                        keywords = await service.extract_keywords(
+                            website_content_id=content_id,
+                            config=keyword_config,
+                        )
+
+                        total_keywords += len(keywords)
+                        successful += 1
+
+                        logger.debug(
+                            f"Extracted {len(keywords)} keywords from content {content_id}"
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            f"Error extracting keywords from content {content_id}: {e}"
+                        )
+                        failed += 1
+
+                # Commit session
+                await session.commit()
+
+                return {
+                    "total_contents": len(website_content_ids),
+                    "successful": successful,
+                    "failed": failed,
+                    "total_keywords": total_keywords,
+                    "method": keyword_config.method,
+                    "user_id": user_id,
+                }
+
+            except Exception as e:
+                logger.error(f"Error in batch keyword extraction task: {e}")
+                raise
+
+    # Run async function in new event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = loop.run_until_complete(_run_batch_extraction())
+        logger.info(
+            f"Completed batch keyword extraction: {result['successful']} successful, "
+            f"{result['failed']} failed, {result['total_keywords']} keywords extracted"
+        )
+        return result
+    finally:
+        loop.close()
+
+
+@celery_app.task(
+    bind=True,
+    base=AnalysisTask,
+    name="backend.tasks.analysis_tasks.extract_entities_batch_task",
+    soft_time_limit=1800,  # 30 minutes
+    time_limit=3600,  # 1 hour
+)
+def extract_entities_batch_task(
+    self,
+    website_content_ids: List[int],
+    config: dict,
+    user_id: int,
+) -> Dict[str, Any]:
+    """
+    Extract named entities from multiple website contents in batch.
+
+    This task uses the enhanced NER extraction methods (spacy, transformer)
+    based on the configuration provided.
+
+    Args:
+        website_content_ids: List of website content IDs
+        config: NER extraction configuration dict
+        user_id: User ID (for tracking/logging)
+
+    Returns:
+        Dictionary with batch statistics
+    """
+    import asyncio
+
+    logger.info(
+        f"Starting batch NER extraction for {len(website_content_ids)} contents "
+        f"(user_id={user_id})"
+    )
+
+    # Update task state
+    self.update_state(
+        state="PROCESSING",
+        meta={
+            "total_contents": len(website_content_ids),
+            "user_id": user_id,
+            "status": "extracting entities",
+        },
+    )
+
+    async def _run_batch_extraction():
+        """Run the batch NER extraction in async context."""
+        async with AsyncSessionLocal() as session:
+            try:
+                service = AnalysisService(session)
+
+                # Parse config
+                ner_config = NERExtractionConfig(**config)
+
+                # Extract entities for each content
+                successful = 0
+                failed = 0
+                total_entities = 0
+                entities_by_type = {}
+
+                for content_id in website_content_ids:
+                    try:
+                        entities = await service.extract_entities(
+                            website_content_id=content_id,
+                            config=ner_config,
+                        )
+
+                        total_entities += len(entities)
+                        successful += 1
+
+                        # Count entities by type
+                        for entity in entities:
+                            label = entity["label"]
+                            entities_by_type[label] = entities_by_type.get(label, 0) + 1
+
+                        logger.debug(
+                            f"Extracted {len(entities)} entities from content {content_id}"
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            f"Error extracting entities from content {content_id}: {e}"
+                        )
+                        failed += 1
+
+                # Commit session
+                await session.commit()
+
+                return {
+                    "total_contents": len(website_content_ids),
+                    "successful": successful,
+                    "failed": failed,
+                    "total_entities": total_entities,
+                    "entities_by_type": entities_by_type,
+                    "method": ner_config.extraction_method,
+                    "user_id": user_id,
+                }
+
+            except Exception as e:
+                logger.error(f"Error in batch NER extraction task: {e}")
+                raise
+
+    # Run async function in new event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = loop.run_until_complete(_run_batch_extraction())
+        logger.info(
+            f"Completed batch NER extraction: {result['successful']} successful, "
+            f"{result['failed']} failed, {result['total_entities']} entities extracted"
+        )
         return result
     finally:
         loop.close()

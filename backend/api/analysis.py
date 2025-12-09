@@ -17,6 +17,9 @@ from backend.schemas.analysis import (
     JobAggregateResponse,
     BatchAnalysisResponse,
     AnalysisDeleteResponse,
+    KeywordPreviewRequest,
+    KeywordPreviewResponse,
+    KeywordPreviewItem,
 )
 from backend.services.analysis_service import AnalysisService
 from backend.tasks.analysis_tasks import (
@@ -576,4 +579,94 @@ async def delete_analysis(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete analysis: {str(e)}",
+        )
+
+
+# v6.0.0: Keyword Extraction Preview (Phase 5)
+
+
+@router.post("/keywords/preview", response_model=KeywordPreviewResponse)
+async def preview_keyword_extraction(
+    request: KeywordPreviewRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+) -> KeywordPreviewResponse:
+    """
+    Preview keyword extraction results before generating network.
+
+    Useful for testing different extraction methods and parameters
+    without analyzing full content or generating networks.
+
+    This endpoint allows you to experiment with:
+    - Different extraction methods (noun, all_pos, tfidf, rake)
+    - Various parameter settings (bigrams, IDF weight, phrase length, etc.)
+    - Language-specific extraction
+
+    Args:
+        request: Preview request with sample text and configuration
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        KeywordPreviewResponse: Top 20 keywords with scores and metadata
+    """
+    import time
+
+    start_time = time.time()
+
+    try:
+        # NOTE: This is a stub implementation for Phase 5
+        # The actual UniversalKeywordExtractor will be implemented in Phase 1/6
+        # For now, we'll return a placeholder response
+
+        # TODO: Replace with actual keyword extraction when Phase 1 is complete
+        # from backend.core.nlp.keyword_extraction import UniversalKeywordExtractor
+        # extractor = UniversalKeywordExtractor()
+        # keywords = await extractor.extract_keywords(
+        #     text=request.sample_text,
+        #     language=request.language,
+        #     config=request.config
+        # )
+
+        # Placeholder response for Phase 5
+        logger.warning(
+            "Keyword preview endpoint called but UniversalKeywordExtractor not yet implemented. "
+            "Returning placeholder response. Implement in Phase 1/6."
+        )
+
+        # Simple placeholder extraction (extract words for demo purposes)
+        words = request.sample_text.lower().split()
+        word_freq = {}
+        for word in words:
+            if len(word) > 3:  # Simple filter
+                word_freq[word] = word_freq.get(word, 0) + 1
+
+        # Sort by frequency
+        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+
+        # Create preview items
+        preview_items = [
+            KeywordPreviewItem(
+                phrase=word,
+                score=float(freq),
+                word_count=1,
+                pos_tag=None
+            )
+            for word, freq in sorted_words[:20]
+        ]
+
+        processing_time = time.time() - start_time
+
+        return KeywordPreviewResponse(
+            keywords=preview_items,
+            config=request.config,
+            total_extracted=len(word_freq),
+            processing_time=processing_time
+        )
+
+    except Exception as e:
+        logger.error(f"Error in keyword preview: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to preview keyword extraction: {str(e)}",
         )

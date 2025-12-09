@@ -11,10 +11,16 @@ if TYPE_CHECKING:
 
 class ExtractedNoun(Base):
     """
-    Extracted nouns from website content with TF-IDF scoring.
+    Extracted keywords from website content (formerly nouns-only).
 
-    This table stores nouns extracted from text using spaCy NLP,
-    ranked by TF-IDF importance scores.
+    Enhanced in v6.0.0 to support multiple extraction methods:
+    - noun: Original spaCy noun extraction (backward compatible)
+    - all_pos: Nouns, verbs, adjectives
+    - tfidf: TF-IDF with bigrams
+    - rake: RAKE algorithm with n-grams
+
+    Note: Table name remains "extracted_nouns" for backward compatibility.
+    The model now represents keywords more broadly.
     """
 
     __tablename__ = "extracted_nouns"
@@ -27,17 +33,17 @@ class ExtractedNoun(Base):
         index=True,
     )
 
-    # Noun information
+    # Keyword information
     word: Mapped[str] = mapped_column(
         String(255), nullable=False, index=True
-    )  # Original word form
+    )  # Original word or phrase
     lemma: Mapped[str] = mapped_column(
         String(255), nullable=False, index=True
     )  # Lemmatized form
     frequency: Mapped[int] = mapped_column(Integer, nullable=False)  # Occurrence count
     tfidf_score: Mapped[float] = mapped_column(
         Float, nullable=False, index=True
-    )  # TF-IDF score
+    )  # TF-IDF or other importance score
 
     # Position data (stored as JSON array of integers)
     positions: Mapped[list] = mapped_column(JSON, nullable=False)
@@ -46,6 +52,28 @@ class ExtractedNoun(Base):
     language: Mapped[str] = mapped_column(
         String(10), nullable=False, index=True
     )  # ISO 639-1 code
+
+    # v6.0.0: New fields for enhanced extraction methods
+    extraction_method: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="noun",
+        index=True,
+        comment="Extraction method: noun, all_pos, tfidf, rake"
+    )
+
+    phrase_length: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Number of words in keyword phrase (for n-grams)"
+    )
+
+    pos_tag: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        index=True,
+        comment="Part of speech tag: NOUN, VERB, ADJ, etc."
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -58,19 +86,28 @@ class ExtractedNoun(Base):
     )
 
     def __repr__(self) -> str:
-        """String representation of ExtractedNoun."""
+        """String representation of ExtractedNoun (Keyword)."""
         return (
             f"<ExtractedNoun(id={self.id}, lemma='{self.lemma}', "
-            f"freq={self.frequency}, tfidf={self.tfidf_score:.4f})>"
+            f"method='{self.extraction_method}', "
+            f"freq={self.frequency}, score={self.tfidf_score:.4f})>"
         )
+
+
+# Alias for backward compatibility and clarity
+ExtractedKeyword = ExtractedNoun
 
 
 class ExtractedEntity(Base):
     """
     Extracted named entities from website content.
 
-    This table stores named entities (PERSON, ORG, GPE, etc.)
-    extracted using spaCy's NER models.
+    Enhanced in v6.0.0 to support:
+    - spaCy NER (existing, fast)
+    - Transformer-based NER (new, more accurate, multilingual)
+
+    Stores named entities (PERSON, ORG, GPE, LOC, etc.)
+    with confidence scores and extraction method metadata.
     """
 
     __tablename__ = "extracted_entities"
@@ -89,19 +126,36 @@ class ExtractedEntity(Base):
     )  # Entity text
     label: Mapped[str] = mapped_column(
         String(50), nullable=False, index=True
-    )  # Entity type (PERSON, ORG, etc.)
+    )  # Entity type (PERSON, ORG, GPE, LOC, MISC, etc.)
 
     # Position in text
     start_pos: Mapped[int] = mapped_column(Integer, nullable=False)  # Character start
     end_pos: Mapped[int] = mapped_column(Integer, nullable=False)  # Character end
 
-    # Optional confidence score
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Confidence score (now required for v6.0.0)
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, index=True
+    )  # 0.0-1.0
+
+    # v6.0.0: Frequency tracking for aggregated entities
+    frequency: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1,
+        comment="Number of times this entity appears in the text"
+    )
 
     # Language of the analysis
     language: Mapped[str] = mapped_column(
         String(10), nullable=False, index=True
     )  # ISO 639-1 code
+
+    # v6.0.0: Extraction method tracking
+    extraction_method: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="spacy",
+        index=True,
+        comment="Extraction method: spacy or transformer"
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -117,7 +171,8 @@ class ExtractedEntity(Base):
         """String representation of ExtractedEntity."""
         return (
             f"<ExtractedEntity(id={self.id}, text='{self.text}', "
-            f"label='{self.label}')>"
+            f"label='{self.label}', method='{self.extraction_method}', "
+            f"confidence={self.confidence:.2f})>"
         )
 
 

@@ -1,4 +1,9 @@
-"""Network service for Phase 6."""
+"""Network service for Phase 6.
+
+Enhanced in v6.0.0:
+- Support for website_keyword networks with multiple extraction methods
+- Support for website_ner networks (named entity recognition)
+"""
 import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -12,12 +17,14 @@ from backend.config import settings
 from backend.repositories.network_repository import NetworkRepository
 from backend.core.networks.search_website import SearchWebsiteNetworkBuilder
 from backend.core.networks.website_noun import WebsiteNounNetworkBuilder
+from backend.core.networks.website_ner import WebsiteNERNetworkBuilder
 from backend.core.networks.website_concept import WebsiteConceptNetworkBuilder
 from backend.core.networks.graph_utils import calculate_graph_metrics
 from backend.core.networks.backboning import apply_backboning
 from backend.core.networks.exporters import export_to_gexf
 from backend.models.network import NetworkExport
 from backend.schemas.network import NetworkBackboningConfig
+from backend.schemas.analysis import KeywordExtractionConfig, NERExtractionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -142,26 +149,31 @@ class NetworkService:
         min_tfidf_score: float = 0.0,
         aggregate_by_domain: bool = True,
         backboning_config: Optional[NetworkBackboningConfig] = None,
+        keyword_config: Optional[KeywordExtractionConfig] = None,  # v6.0.0
     ) -> NetworkExport:
         """
-        Generate website-noun bipartite network.
+        Generate website-keyword (noun) bipartite network.
+
+        Enhanced in v6.0.0 to support multiple extraction methods via keyword_config.
 
         Args:
             user_id: User ID
             name: Network name
             session_ids: List of search session IDs
-            top_n_nouns: Top N nouns per website
+            top_n_nouns: Top N keywords per website (kept for backward compat)
             languages: Language filter
             min_tfidf_score: Minimum TF-IDF score
             aggregate_by_domain: Whether to aggregate by domain
             backboning_config: Optional backboning configuration
+            keyword_config: v6.0.0 - Configuration for keyword extraction filtering
 
         Returns:
             NetworkExport object
         """
         logger.info(
-            f"Generating website-noun network: name={name}, "
-            f"sessions={session_ids}, user={user_id}"
+            f"Generating website-keyword network: name={name}, "
+            f"sessions={session_ids}, user={user_id}, "
+            f"method={keyword_config.method if keyword_config else 'noun'}"
         )
 
         # Check if analysis is needed and trigger it
@@ -176,6 +188,7 @@ class NetworkService:
             languages=languages,
             min_tfidf_score=min_tfidf_score,
             aggregate_by_domain=aggregate_by_domain,
+            keyword_config=keyword_config,  # v6.0.0
         )
 
         graph = await builder.build()
@@ -225,6 +238,110 @@ class NetworkService:
 
         logger.info(
             f"Generated website-noun network: id={network.id}, "
+            f"nodes={network.node_count}, edges={network.edge_count}"
+        )
+
+        return network
+
+    async def generate_website_ner_network(
+        self,
+        user_id: int,
+        name: str,
+        session_ids: List[int],
+        top_n_entities: int = 50,
+        languages: Optional[List[str]] = None,
+        min_confidence: float = 0.85,
+        aggregate_by_domain: bool = True,
+        backboning_config: Optional[NetworkBackboningConfig] = None,
+        ner_config: Optional[NERExtractionConfig] = None,  # v6.0.0
+    ) -> NetworkExport:
+        """
+        Generate website-NER bipartite network.
+
+        New in v6.0.0: Build networks connecting websites to named entities.
+
+        Args:
+            user_id: User ID
+            name: Network name
+            session_ids: List of search session IDs
+            top_n_entities: Top N entities per website
+            languages: Language filter
+            min_confidence: Minimum confidence score
+            aggregate_by_domain: Whether to aggregate by domain
+            backboning_config: Optional backboning configuration
+            ner_config: v6.0.0 - Configuration for NER extraction filtering
+
+        Returns:
+            NetworkExport object
+        """
+        logger.info(
+            f"Generating website-NER network: name={name}, "
+            f"sessions={session_ids}, user={user_id}, "
+            f"method={ner_config.extraction_method if ner_config else 'spacy'}"
+        )
+
+        # Check if analysis is needed and trigger it
+        await self._ensure_content_analyzed(session_ids)
+
+        # Build network
+        builder = WebsiteNERNetworkBuilder(
+            name=name,
+            session=self.session,
+            session_ids=session_ids,
+            top_n_entities=top_n_entities,
+            languages=languages,
+            min_confidence=min_confidence,
+            aggregate_by_domain=aggregate_by_domain,
+            ner_config=ner_config,  # v6.0.0
+        )
+
+        graph = await builder.build()
+
+        # Validate graph
+        if graph.number_of_nodes() == 0:
+            raise ValueError("Generated network has no nodes. Check session data.")
+
+        # Apply backboning if configured
+        backboning_stats = None
+        original_edge_count = graph.number_of_edges()
+
+        if backboning_config and backboning_config.enabled:
+            graph, backboning_stats = await self._apply_backboning(
+                graph, backboning_config
+            )
+
+        # Export to GEXF
+        file_path = await self._generate_file_path(user_id, name, "gexf")
+        export_stats = export_to_gexf(graph, file_path)
+
+        # Create database record
+        metadata = builder.metadata
+
+        network = await self.repository.create_export(
+            user_id=user_id,
+            name=name,
+            network_type="website_ner",
+            session_ids=session_ids,
+            file_path=file_path,
+            file_size=export_stats["file_size"],
+            node_count=graph.number_of_nodes(),
+            edge_count=graph.number_of_edges(),
+            network_metadata=metadata,
+            backboning_applied=backboning_config.enabled if backboning_config else False,
+            backboning_algorithm=(
+                backboning_config.algorithm if backboning_config and backboning_config.enabled else None
+            ),
+            backboning_alpha=(
+                backboning_config.alpha if backboning_config and backboning_config.enabled else None
+            ),
+            original_edge_count=original_edge_count,
+            backboning_statistics=backboning_stats,
+        )
+
+        await self.session.commit()
+
+        logger.info(
+            f"Generated website-NER network: id={network.id}, "
             f"nodes={network.node_count}, edges={network.edge_count}"
         )
 

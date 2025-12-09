@@ -3,6 +3,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
+# Import keyword and NER extraction configs from analysis schemas
+from backend.schemas.analysis import KeywordExtractionConfig, NERExtractionConfig
+
 
 # Backboning configuration
 class NetworkBackboningConfig(BaseModel):
@@ -60,7 +63,13 @@ class NetworkGenerateRequest(BaseModel):
         max_length=255,
         description="Name for the network"
     )
-    type: Literal["search_website", "website_noun", "website_concept"] = Field(
+    type: Literal[
+        "search_website",
+        "website_noun",       # Legacy support
+        "website_keyword",    # Enhanced from website_noun
+        "website_ner",        # NEW in v6.0.0
+        "website_concept"
+    ] = Field(
         ...,
         description="Type of network to generate"
     )
@@ -70,12 +79,12 @@ class NetworkGenerateRequest(BaseModel):
         description="List of search session IDs to include"
     )
 
-    # Network-specific configuration
+    # Network-specific configuration (legacy, kept for backward compatibility)
     top_n_nouns: Optional[int] = Field(
         default=50,
         ge=1,
         le=500,
-        description="Top N nouns per website (website_noun only)"
+        description="Top N nouns per website (legacy, use keyword_config instead)"
     )
     languages: Optional[List[str]] = Field(
         default=None,
@@ -84,7 +93,7 @@ class NetworkGenerateRequest(BaseModel):
     min_tfidf_score: Optional[float] = Field(
         default=0.0,
         ge=0.0,
-        description="Minimum TF-IDF score for nouns"
+        description="Minimum TF-IDF score (legacy, use keyword_config instead)"
     )
     aggregate_by_domain: Optional[bool] = Field(
         default=True,
@@ -95,6 +104,18 @@ class NetworkGenerateRequest(BaseModel):
         description="Edge weight calculation method (search_website only)"
     )
 
+    # v6.0.0: Enhanced keyword extraction configuration (for website_keyword networks)
+    keyword_config: Optional[KeywordExtractionConfig] = Field(
+        default=None,
+        description="Configuration for keyword extraction (website_keyword networks)"
+    )
+
+    # v6.0.0: NER extraction configuration (for website_ner networks)
+    ner_config: Optional[NERExtractionConfig] = Field(
+        default=None,
+        description="Configuration for NER extraction (website_ner networks)"
+    )
+
     # Backboning configuration
     backboning: Optional[NetworkBackboningConfig] = Field(
         default=None,
@@ -103,18 +124,40 @@ class NetworkGenerateRequest(BaseModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "name": "Climate Search Network",
-                "type": "search_website",
-                "session_ids": [1, 2, 3],
-                "aggregate_by_domain": True,
-                "weight_method": "inverse_rank",
-                "backboning": {
-                    "enabled": True,
-                    "algorithm": "disparity_filter",
-                    "alpha": 0.05
+            "examples": [
+                {
+                    "name": "Climate Search Network",
+                    "type": "search_website",
+                    "session_ids": [1, 2, 3],
+                    "aggregate_by_domain": True,
+                    "weight_method": "inverse_rank",
+                    "backboning": {
+                        "enabled": True,
+                        "algorithm": "disparity_filter",
+                        "alpha": 0.05
+                    }
+                },
+                {
+                    "name": "Website Keywords (RAKE)",
+                    "type": "website_keyword",
+                    "session_ids": [1, 2],
+                    "keyword_config": {
+                        "method": "rake",
+                        "max_keywords": 30,
+                        "max_phrase_length": 3
+                    }
+                },
+                {
+                    "name": "Website Named Entities",
+                    "type": "website_ner",
+                    "session_ids": [1, 2],
+                    "ner_config": {
+                        "extraction_method": "transformer",
+                        "entity_types": ["PERSON", "ORG", "LOC"],
+                        "confidence_threshold": 0.85
+                    }
                 }
-            }
+            ]
         }
     )
 

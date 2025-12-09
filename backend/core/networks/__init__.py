@@ -1,7 +1,16 @@
-"""Network generation module for Phase 6."""
+"""Network generation module for Phase 6.
+
+Enhanced in v6.0.0:
+- WebsiteKeywordNetworkBuilder: Support for multiple keyword extraction methods
+- WebsiteNERNetworkBuilder: New network type for named entities
+"""
 from backend.core.networks.base import NetworkBuilder
 from backend.core.networks.search_website import SearchWebsiteNetworkBuilder
-from backend.core.networks.website_noun import WebsiteNounNetworkBuilder
+from backend.core.networks.website_noun import (
+    WebsiteNounNetworkBuilder,
+    WebsiteKeywordNetworkBuilder,
+)
+from backend.core.networks.website_ner import WebsiteNERNetworkBuilder
 from backend.core.networks.website_concept import WebsiteConceptNetworkBuilder
 from backend.core.networks.graph_utils import (
     calculate_graph_metrics,
@@ -31,6 +40,8 @@ __all__ = [
     "NetworkBuilder",
     "SearchWebsiteNetworkBuilder",
     "WebsiteNounNetworkBuilder",
+    "WebsiteKeywordNetworkBuilder",  # v6.0.0: Enhanced keyword extraction
+    "WebsiteNERNetworkBuilder",  # v6.0.0: New NER network type
     "WebsiteConceptNetworkBuilder",
     # Graph utilities
     "calculate_graph_metrics",

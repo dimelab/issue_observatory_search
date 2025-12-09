@@ -1,7 +1,147 @@
-"""Pydantic schemas for content analysis operations."""
+"""
+Pydantic schemas for content analysis operations.
+
+Enhanced in v6.0.0 to support:
+- Multiple keyword extraction methods (noun, all_pos, tfidf, rake)
+- Transformer-based NER
+- Configurable extraction parameters
+"""
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field, field_validator
+
+
+# v6.0.0: Configuration Schemas for Enhanced Extraction
+
+
+class KeywordExtractionConfig(BaseModel):
+    """
+    Configuration for keyword extraction methods.
+
+    Supports:
+    - noun: Original spaCy noun extraction (backward compatible)
+    - all_pos: Extract nouns, verbs, adjectives
+    - tfidf: TF-IDF with optional bigrams
+    - rake: RAKE algorithm with n-grams
+    """
+
+    method: Literal["noun", "all_pos", "tfidf", "rake"] = Field(
+        default="noun",
+        description="Extraction method to use"
+    )
+    max_keywords: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Maximum number of keywords to extract"
+    )
+    min_frequency: int = Field(
+        default=2,
+        ge=1,
+        le=100,
+        description="Minimum frequency for a keyword to be included"
+    )
+
+    # TF-IDF specific options
+    use_bigrams: bool = Field(
+        default=False,
+        description="Include bigrams (2-word phrases) in TF-IDF extraction"
+    )
+    idf_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=2.0,
+        description="IDF weighting factor: 0.0 (pure TF) to 2.0 (IDF-heavy)"
+    )
+
+    # RAKE specific options
+    max_phrase_length: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Maximum phrase length (n-gram size) for RAKE extraction"
+    )
+
+    # POS filter options (for "all_pos" method)
+    include_pos: list[str] = Field(
+        default=["NOUN"],
+        description="POS tags to include: NOUN, VERB, ADJ"
+    )
+
+    @field_validator("include_pos")
+    @classmethod
+    def validate_pos_tags(cls, v: list[str]) -> list[str]:
+        """Validate that POS tags are supported."""
+        allowed = {"NOUN", "VERB", "ADJ"}
+        for tag in v:
+            if tag not in allowed:
+                raise ValueError(f"POS tag '{tag}' not supported. Use: {allowed}")
+        return v
+
+    class Config:
+        """Pydantic config."""
+        json_schema_extra = {
+            "example": {
+                "method": "rake",
+                "max_keywords": 30,
+                "min_frequency": 2,
+                "max_phrase_length": 3
+            }
+        }
+
+
+class NERExtractionConfig(BaseModel):
+    """
+    Configuration for Named Entity Recognition extraction.
+
+    Supports:
+    - spacy: Fast spaCy NER (existing)
+    - transformer: Transformer-based multilingual NER (new)
+    """
+
+    extraction_method: Literal["spacy", "transformer"] = Field(
+        default="spacy",
+        description="NER extraction method to use"
+    )
+    entity_types: list[str] = Field(
+        default=["PERSON", "ORG", "GPE", "LOC"],
+        description="Entity types to extract (PERSON, ORG, GPE, LOC, MISC)"
+    )
+    confidence_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence score for including entities"
+    )
+    max_entities_per_content: int = Field(
+        default=100,
+        ge=1,
+        le=500,
+        description="Maximum entities to extract per content"
+    )
+
+    @field_validator("entity_types")
+    @classmethod
+    def validate_entity_types(cls, v: list[str]) -> list[str]:
+        """Validate that entity types are supported."""
+        allowed = {"PERSON", "PER", "ORG", "GPE", "LOC", "MISC"}
+        for entity_type in v:
+            if entity_type not in allowed:
+                raise ValueError(
+                    f"Entity type '{entity_type}' not supported. Use: {allowed}"
+                )
+        return v
+
+    class Config:
+        """Pydantic config."""
+        json_schema_extra = {
+            "example": {
+                "extraction_method": "transformer",
+                "entity_types": ["PERSON", "ORG", "LOC"],
+                "confidence_threshold": 0.85,
+                "max_entities_per_content": 100
+            }
+        }
 
 
 # Request Schemas
@@ -64,14 +204,32 @@ class AnalyzeJobRequest(AnalysisOptionsBase):
 
 
 class ExtractedNounResponse(BaseModel):
-    """Response schema for extracted nouns."""
+    """
+    Response schema for extracted keywords (formerly nouns).
 
-    word: str = Field(..., description="Original word form")
+    Enhanced in v6.0.0 with extraction method and phrase length information.
+    """
+
+    word: str = Field(..., description="Original word form or phrase")
     lemma: str = Field(..., description="Lemmatized (base) form of the word")
-    frequency: int = Field(..., description="Number of times word appears")
-    tfidf_score: float = Field(..., description="TF-IDF importance score")
+    frequency: int = Field(..., description="Number of times keyword appears")
+    tfidf_score: float = Field(..., description="Importance score (TF-IDF or other)")
     positions: list[int] = Field(
         default_factory=list, description="Character positions in text"
+    )
+
+    # v6.0.0: New fields
+    extraction_method: str = Field(
+        default="noun",
+        description="Extraction method: noun, all_pos, tfidf, rake"
+    )
+    phrase_length: Optional[int] = Field(
+        None,
+        description="Number of words in phrase (for n-grams)"
+    )
+    pos_tag: Optional[str] = Field(
+        None,
+        description="Part of speech tag (NOUN, VERB, ADJ, etc.)"
     )
 
     class Config:
@@ -80,14 +238,35 @@ class ExtractedNounResponse(BaseModel):
         from_attributes = True
 
 
+# Alias for clarity
+ExtractedKeywordResponse = ExtractedNounResponse
+
+
 class ExtractedEntityResponse(BaseModel):
-    """Response schema for extracted named entities."""
+    """
+    Response schema for extracted named entities.
+
+    Enhanced in v6.0.0 with extraction method and frequency information.
+    """
 
     text: str = Field(..., description="Entity text")
-    label: str = Field(..., description="Entity type (PERSON, ORG, GPE, etc.)")
+    label: str = Field(..., description="Entity type (PERSON, ORG, GPE, LOC, MISC)")
     start_pos: int = Field(..., description="Character position where entity starts")
     end_pos: int = Field(..., description="Character position where entity ends")
-    confidence: Optional[float] = Field(None, description="Optional confidence score")
+    confidence: float = Field(
+        default=1.0,
+        description="Confidence score (0.0-1.0)"
+    )
+
+    # v6.0.0: New fields
+    frequency: int = Field(
+        default=1,
+        description="Number of times this entity appears"
+    )
+    extraction_method: str = Field(
+        default="spacy",
+        description="Extraction method: spacy or transformer"
+    )
 
     class Config:
         """Pydantic config."""
@@ -265,4 +444,79 @@ class AnalysisDeleteResponse(BaseModel):
     class Config:
         """Pydantic config."""
 
+        from_attributes = True
+
+
+# v6.0.0: Keyword Extraction Preview (Phase 5)
+
+
+class KeywordPreviewRequest(BaseModel):
+    """
+    Request to preview keyword extraction results.
+
+    Useful for testing different extraction methods and parameters
+    before generating a full network.
+    """
+
+    sample_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=50000,
+        description="Sample text to extract keywords from"
+    )
+    language: str = Field(
+        default="en",
+        description="Language code (en, da, etc.)"
+    )
+    config: KeywordExtractionConfig = Field(
+        default_factory=KeywordExtractionConfig,
+        description="Keyword extraction configuration"
+    )
+
+    class Config:
+        """Pydantic config."""
+        json_schema_extra = {
+            "example": {
+                "sample_text": "Climate change is affecting global weather patterns...",
+                "language": "en",
+                "config": {
+                    "method": "rake",
+                    "max_keywords": 20,
+                    "max_phrase_length": 3
+                }
+            }
+        }
+
+
+class KeywordPreviewItem(BaseModel):
+    """A single keyword from preview results."""
+
+    phrase: str = Field(..., description="Keyword or phrase")
+    score: float = Field(..., description="Relevance score")
+    word_count: int = Field(default=1, description="Number of words in phrase")
+    pos_tag: Optional[str] = Field(None, description="Part of speech tag (if applicable)")
+
+
+class KeywordPreviewResponse(BaseModel):
+    """Response for keyword extraction preview."""
+
+    keywords: list[KeywordPreviewItem] = Field(
+        ...,
+        description="Extracted keywords (top 20)"
+    )
+    config: KeywordExtractionConfig = Field(
+        ...,
+        description="Configuration used for extraction"
+    )
+    total_extracted: int = Field(
+        ...,
+        description="Total number of keywords extracted before limiting"
+    )
+    processing_time: float = Field(
+        ...,
+        description="Processing time in seconds"
+    )
+
+    class Config:
+        """Pydantic config."""
         from_attributes = True

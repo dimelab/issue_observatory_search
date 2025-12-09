@@ -1,6 +1,12 @@
-"""Website-Noun bipartite network builder for Phase 6.
+"""Website-Keyword (formerly Noun) bipartite network builder for Phase 6.
 
-Builds networks connecting websites to extracted nouns based on TF-IDF scores.
+Enhanced in v6.0.0 to support multiple extraction methods:
+- noun: Original spaCy noun extraction (backward compatible)
+- all_pos: Extract nouns, verbs, adjectives
+- tfidf: TF-IDF with optional bigrams
+- rake: RAKE algorithm with n-grams
+
+Builds networks connecting websites to extracted keywords based on TF-IDF scores.
 """
 from typing import List, Dict, Any, Optional
 import logging
@@ -11,20 +17,27 @@ from collections import defaultdict
 
 from backend.core.networks.base import NetworkBuilder
 from backend.models.website import WebsiteContent
-from backend.models.analysis import ExtractedNoun
+from backend.models.analysis import ExtractedNoun, ExtractedKeyword
 from backend.models.scraping import ScrapingJob
+from backend.schemas.analysis import KeywordExtractionConfig
 
 logger = logging.getLogger(__name__)
 
 
 class WebsiteNounNetworkBuilder(NetworkBuilder):
     """
-    Build bipartite network: websites → nouns.
+    Build bipartite network: websites → keywords (nouns).
+
+    Enhanced in v6.0.0 to support multiple extraction methods.
+    This class maintains backward compatibility while supporting new keyword types.
 
     Network structure:
     - Website nodes: represent websites/URLs
-    - Noun nodes: represent extracted nouns (lemmatized)
-    - Edges: weighted by TF-IDF scores
+    - Keyword nodes: represent extracted keywords (lemmatized)
+    - Edges: weighted by TF-IDF or importance scores
+
+    Note: Class name kept as WebsiteNounNetworkBuilder for backward compatibility.
+    Use WebsiteKeywordNetworkBuilder alias for clarity in new code.
     """
 
     def __init__(
@@ -36,43 +49,54 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
         languages: Optional[List[str]] = None,
         min_tfidf_score: float = 0.0,
         aggregate_by_domain: bool = True,
+        keyword_config: Optional[KeywordExtractionConfig] = None,
     ):
         """
-        Initialize the website-noun network builder.
+        Initialize the website-keyword network builder.
 
         Args:
             name: Network name
             session: Database session
             session_ids: List of search session IDs
-            top_n_nouns: Top N nouns per website to include
+            top_n_nouns: Top N keywords per website to include (kept for backward compat)
             languages: List of languages to include (None = all)
             min_tfidf_score: Minimum TF-IDF score to include
             aggregate_by_domain: If True, aggregate URLs by domain
+            keyword_config: Configuration for keyword extraction filtering (v6.0.0)
         """
-        super().__init__(name, "website_noun")
+        super().__init__(name, "website_keyword")
         self.session = session
         self.session_ids = session_ids
-        self.top_n_nouns = top_n_nouns
+        self.top_n_nouns = top_n_nouns  # Kept for backward compatibility
+        self.top_n_keywords = top_n_nouns  # Alias
         self.languages = languages
         self.min_tfidf_score = min_tfidf_score
         self.aggregate_by_domain = aggregate_by_domain
 
+        # v6.0.0: Keyword extraction configuration
+        self.keyword_config = keyword_config or KeywordExtractionConfig()
+
         # Add metadata
         self.add_metadata("session_ids", session_ids)
-        self.add_metadata("top_n_nouns", top_n_nouns)
+        self.add_metadata("top_n_keywords", top_n_nouns)
         self.add_metadata("languages", languages)
         self.add_metadata("min_tfidf_score", min_tfidf_score)
         self.add_metadata("aggregate_by_domain", aggregate_by_domain)
+        self.add_metadata("keyword_method", self.keyword_config.method)
+        self.add_metadata("extraction_config", self.keyword_config.model_dump())
 
     async def build(self) -> nx.Graph:
         """
-        Build the website-noun bipartite network.
+        Build the website-keyword bipartite network.
+
+        Enhanced in v6.0.0 to support filtering by extraction method.
 
         Returns:
             NetworkX Graph object
         """
         logger.info(
-            f"Building website-noun network for sessions: {self.session_ids}"
+            f"Building website-keyword network for sessions: {self.session_ids}, "
+            f"method: {self.keyword_config.method}"
         )
 
         # Create undirected graph (bipartite)
@@ -88,18 +112,18 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
 
         # Build nodes and edges
         website_count = 0
-        noun_count = 0
+        keyword_count = 0
         edge_count = 0
 
-        # Track websites and nouns to avoid duplicates
+        # Track websites and keywords to avoid duplicates
         websites_seen = set()
-        nouns_seen = set()
+        keywords_seen = set()
 
-        # If aggregating by domain, collect nouns per domain
+        # If aggregating by domain, collect keywords per domain
         if self.aggregate_by_domain:
-            domain_nouns = await self._aggregate_nouns_by_domain(contents)
+            domain_keywords = await self._aggregate_keywords_by_domain(contents)
 
-            for domain, nouns_data in domain_nouns.items():
+            for domain, keywords_data in domain_keywords.items():
                 # Add website node
                 website_node_id = self._sanitize_node_id(f"website_{domain}")
 
@@ -113,44 +137,47 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
                     websites_seen.add(website_node_id)
                     website_count += 1
 
-                # Add top N nouns for this domain
-                for noun_data in nouns_data[: self.top_n_nouns]:
-                    lemma = noun_data["lemma"]
-                    tfidf_score = noun_data["avg_tfidf_score"]
+                # Add top N keywords for this domain
+                for keyword_data in keywords_data[: self.top_n_keywords]:
+                    lemma = keyword_data["lemma"]
+                    tfidf_score = keyword_data["avg_tfidf_score"]
 
                     if tfidf_score < self.min_tfidf_score:
                         continue
 
-                    # Add noun node
-                    noun_node_id = self._sanitize_node_id(f"noun_{lemma}")
+                    # Add keyword node
+                    keyword_node_id = self._sanitize_node_id(f"keyword_{lemma}")
 
-                    if noun_node_id not in nouns_seen:
+                    if keyword_node_id not in keywords_seen:
                         self.add_node(
-                            noun_node_id,
-                            node_type="noun",
+                            keyword_node_id,
+                            node_type="keyword",
                             label=lemma,
                             lemma=lemma,
-                            language=noun_data["language"],
+                            language=keyword_data["language"],
+                            extraction_method=keyword_data.get("extraction_method", "noun"),
+                            phrase_length=keyword_data.get("phrase_length", 1),
+                            pos_tag=keyword_data.get("pos_tag"),
                         )
-                        nouns_seen.add(noun_node_id)
-                        noun_count += 1
+                        keywords_seen.add(keyword_node_id)
+                        keyword_count += 1
 
                     # Add edge with TF-IDF as weight
                     self.add_edge(
                         website_node_id,
-                        noun_node_id,
+                        keyword_node_id,
                         weight=tfidf_score,
-                        frequency=noun_data["total_frequency"],
+                        frequency=keyword_data["total_frequency"],
                     )
                     edge_count += 1
 
         else:
             # Process each website content individually
             for content in contents:
-                # Load nouns for this content
-                nouns = await self._load_nouns_for_content(content.id)
+                # Load keywords for this content
+                keywords = await self._load_keywords_for_content(content.id)
 
-                if not nouns:
+                if not keywords:
                     continue
 
                 # Add website node
@@ -173,47 +200,50 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
                     websites_seen.add(website_node_id)
                     website_count += 1
 
-                # Add top N nouns
-                for noun in nouns[: self.top_n_nouns]:
-                    if noun.tfidf_score < self.min_tfidf_score:
+                # Add top N keywords
+                for keyword in keywords[: self.top_n_keywords]:
+                    if keyword.tfidf_score < self.min_tfidf_score:
                         continue
 
-                    # Add noun node
-                    noun_node_id = self._sanitize_node_id(f"noun_{noun.lemma}")
+                    # Add keyword node
+                    keyword_node_id = self._sanitize_node_id(f"keyword_{keyword.lemma}")
 
-                    if noun_node_id not in nouns_seen:
+                    if keyword_node_id not in keywords_seen:
                         self.add_node(
-                            noun_node_id,
-                            node_type="noun",
-                            label=noun.lemma,
-                            lemma=noun.lemma,
-                            language=noun.language,
+                            keyword_node_id,
+                            node_type="keyword",
+                            label=keyword.lemma,
+                            lemma=keyword.lemma,
+                            language=keyword.language,
+                            extraction_method=keyword.extraction_method,
+                            phrase_length=keyword.phrase_length or 1,
+                            pos_tag=keyword.pos_tag,
                         )
-                        nouns_seen.add(noun_node_id)
-                        noun_count += 1
+                        keywords_seen.add(keyword_node_id)
+                        keyword_count += 1
 
                     # Add edge
                     self.add_edge(
                         website_node_id,
-                        noun_node_id,
-                        weight=noun.tfidf_score,
-                        frequency=noun.frequency,
+                        keyword_node_id,
+                        weight=keyword.tfidf_score,
+                        frequency=keyword.frequency,
                     )
                     edge_count += 1
 
         # Update metadata
         self.add_metadata("website_count", website_count)
-        self.add_metadata("noun_count", noun_count)
+        self.add_metadata("keyword_count", keyword_count)
         self.add_metadata("edge_count", edge_count)
 
         # Validate bipartite structure
-        is_valid = self.validate_bipartite(("website", "noun"))
+        is_valid = self.validate_bipartite(("website", "keyword"))
         if not is_valid:
             logger.error("Graph failed bipartite validation")
 
         logger.info(
-            f"Built website-noun network: {website_count} websites, "
-            f"{noun_count} nouns, {edge_count} edges"
+            f"Built website-keyword network: {website_count} websites, "
+            f"{keyword_count} keywords, {edge_count} edges"
         )
 
         return self.graph
@@ -252,38 +282,50 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def _load_nouns_for_content(
+    async def _load_keywords_for_content(
         self, content_id: int
-    ) -> List[ExtractedNoun]:
+    ) -> List[ExtractedKeyword]:
         """
-        Load nouns for a website content, ordered by TF-IDF score.
+        Load keywords for a website content, ordered by TF-IDF score.
+
+        Enhanced in v6.0.0 to filter by extraction method.
 
         Args:
             content_id: Website content ID
 
         Returns:
-            List of ExtractedNoun objects
+            List of ExtractedKeyword objects
         """
         stmt = (
-            select(ExtractedNoun)
-            .where(ExtractedNoun.website_content_id == content_id)
-            .order_by(ExtractedNoun.tfidf_score.desc())
+            select(ExtractedKeyword)
+            .where(ExtractedKeyword.website_content_id == content_id)
+            .where(ExtractedKeyword.extraction_method == self.keyword_config.method)
+            .order_by(ExtractedKeyword.tfidf_score.desc())
         )
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def _aggregate_nouns_by_domain(
+    # Backward compatibility alias
+    async def _load_nouns_for_content(
+        self, content_id: int
+    ) -> List[ExtractedNoun]:
+        """Alias for backward compatibility."""
+        return await self._load_keywords_for_content(content_id)
+
+    async def _aggregate_keywords_by_domain(
         self, contents: List[WebsiteContent]
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Aggregate nouns by domain.
+        Aggregate keywords by domain.
+
+        Enhanced in v6.0.0 to filter by extraction method and include metadata.
 
         Args:
             contents: List of WebsiteContent objects
 
         Returns:
-            Dictionary mapping domain to list of aggregated noun data
+            Dictionary mapping domain to list of aggregated keyword data
         """
         from urllib.parse import urlparse
 
@@ -295,18 +337,19 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
             domain = parsed.netloc or parsed.path.split('/')[0]
             domain_content_ids[domain].append(content.id)
 
-        # Load and aggregate nouns for each domain
-        domain_nouns = {}
+        # Load and aggregate keywords for each domain
+        domain_keywords = {}
 
         for domain, content_ids in domain_content_ids.items():
-            # Load all nouns for this domain's contents
+            # Load all keywords for this domain's contents with filtering
             stmt = (
-                select(ExtractedNoun)
-                .where(ExtractedNoun.website_content_id.in_(content_ids))
+                select(ExtractedKeyword)
+                .where(ExtractedKeyword.website_content_id.in_(content_ids))
+                .where(ExtractedKeyword.extraction_method == self.keyword_config.method)
             )
 
             result = await self.session.execute(stmt)
-            nouns = list(result.scalars().all())
+            keywords = list(result.scalars().all())
 
             # Aggregate by lemma
             lemma_stats = defaultdict(
@@ -315,16 +358,25 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
                     "total_tfidf": 0.0,
                     "count": 0,
                     "language": None,
+                    "extraction_method": None,
+                    "phrase_length": None,
+                    "pos_tag": None,
                 }
             )
 
-            for noun in nouns:
-                stats = lemma_stats[noun.lemma]
-                stats["total_frequency"] += noun.frequency
-                stats["total_tfidf"] += noun.tfidf_score
+            for keyword in keywords:
+                stats = lemma_stats[keyword.lemma]
+                stats["total_frequency"] += keyword.frequency
+                stats["total_tfidf"] += keyword.tfidf_score
                 stats["count"] += 1
                 if stats["language"] is None:
-                    stats["language"] = noun.language
+                    stats["language"] = keyword.language
+                if stats["extraction_method"] is None:
+                    stats["extraction_method"] = keyword.extraction_method
+                if stats["phrase_length"] is None:
+                    stats["phrase_length"] = keyword.phrase_length
+                if stats["pos_tag"] is None:
+                    stats["pos_tag"] = keyword.pos_tag
 
             # Convert to list and calculate averages
             aggregated = []
@@ -336,32 +388,42 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
                         "avg_tfidf_score": stats["total_tfidf"] / stats["count"],
                         "content_count": stats["count"],
                         "language": stats["language"],
+                        "extraction_method": stats["extraction_method"],
+                        "phrase_length": stats["phrase_length"],
+                        "pos_tag": stats["pos_tag"],
                     }
                 )
 
             # Sort by average TF-IDF
             aggregated.sort(key=lambda x: x["avg_tfidf_score"], reverse=True)
 
-            domain_nouns[domain] = aggregated
+            domain_keywords[domain] = aggregated
 
-        return domain_nouns
+        return domain_keywords
 
-    async def get_top_nouns(self, top_n: int = 10) -> List[Dict[str, Any]]:
+    # Backward compatibility alias
+    async def _aggregate_nouns_by_domain(
+        self, contents: List[WebsiteContent]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Alias for backward compatibility."""
+        return await self._aggregate_keywords_by_domain(contents)
+
+    async def get_top_keywords(self, top_n: int = 10) -> List[Dict[str, Any]]:
         """
-        Get top N nouns by degree (number of websites they appear in).
+        Get top N keywords by degree (number of websites they appear in).
 
         Args:
-            top_n: Number of top nouns to return
+            top_n: Number of top keywords to return
 
         Returns:
-            List of noun dictionaries
+            List of keyword dictionaries
         """
         if self.graph is None:
             return []
 
-        nouns = []
+        keywords = []
         for node, data in self.graph.nodes(data=True):
-            if data.get("node_type") == "noun":
+            if data.get("node_type") in ("keyword", "noun"):  # Support both types
                 degree = self.graph.degree(node)
 
                 # Calculate average weight
@@ -369,23 +431,31 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
                 weights = [d.get("weight", 1.0) for _, _, d in edges]
                 avg_weight = sum(weights) / len(weights) if weights else 0
 
-                nouns.append(
+                keywords.append(
                     {
                         "lemma": data.get("lemma"),
                         "language": data.get("language"),
                         "degree": degree,
                         "avg_tfidf": avg_weight,
+                        "extraction_method": data.get("extraction_method"),
+                        "phrase_length": data.get("phrase_length"),
+                        "pos_tag": data.get("pos_tag"),
                     }
                 )
 
         # Sort by degree
-        nouns.sort(key=lambda x: x["degree"], reverse=True)
+        keywords.sort(key=lambda x: x["degree"], reverse=True)
 
-        return nouns[:top_n]
+        return keywords[:top_n]
+
+    # Backward compatibility alias
+    async def get_top_nouns(self, top_n: int = 10) -> List[Dict[str, Any]]:
+        """Alias for backward compatibility."""
+        return await self.get_top_keywords(top_n)
 
     async def get_top_websites(self, top_n: int = 10) -> List[Dict[str, Any]]:
         """
-        Get top N websites by degree (number of nouns).
+        Get top N websites by degree (number of keywords).
 
         Args:
             top_n: Number of top websites to return
@@ -413,3 +483,7 @@ class WebsiteNounNetworkBuilder(NetworkBuilder):
         websites.sort(key=lambda x: x["degree"], reverse=True)
 
         return websites[:top_n]
+
+
+# Backward compatibility alias
+WebsiteKeywordNetworkBuilder = WebsiteNounNetworkBuilder
