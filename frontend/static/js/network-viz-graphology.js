@@ -298,12 +298,26 @@ class GraphologyNetworkVisualizer {
         try {
             console.log('Starting ForceAtlas2 layout...');
 
+            // Debug: log available objects
+            if (typeof graphologyLibrary !== 'undefined') {
+                console.log('Available in graphologyLibrary:', Object.keys(graphologyLibrary));
+            }
+
             // Create layout instance if it doesn't exist
             if (!this.fa2Layout) {
                 const FA2Layout = graphologyLibrary.FA2Layout;
+
+                if (!FA2Layout) {
+                    throw new Error('FA2Layout not found in graphologyLibrary');
+                }
+
+                console.log('Creating FA2Layout instance...');
+
                 this.fa2Layout = new FA2Layout(this.graph, {
                     settings: this.options.fa2Settings
                 });
+
+                console.log('FA2Layout instance created');
             }
 
             // Start continuous layout
