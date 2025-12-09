@@ -27,7 +27,6 @@ class GraphologyNetworkVisualizer {
         this.graph = new graphology.Graph({ type: 'undirected' });
         this.renderer = null;
         this.rawData = null;
-        this.fa2Layout = null;
         this.layoutIsRunning = false;
         this.layoutAnimationFrame = null;
 
@@ -267,7 +266,7 @@ class GraphologyNetworkVisualizer {
      */
     async applyForceAtlas2Layout() {
         // Check if graphology-library is available
-        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.FA2Layout) {
+        if (typeof graphologyLibrary === 'undefined') {
             console.warn('ForceAtlas2 layout not available (graphology-library missing)');
             return;
         }
@@ -275,44 +274,35 @@ class GraphologyNetworkVisualizer {
         try {
             console.log('Starting initial ForceAtlas2 layout...');
 
-            // Create FA2Layout instance with serializable settings
-            const FA2Layout = graphologyLibrary.FA2Layout;
-            const cleanSettings = {
-                adjustSizes: Boolean(this.options.fa2Settings.adjustSizes),
-                barnesHutOptimize: Boolean(this.options.fa2Settings.barnesHutOptimize),
-                barnesHutTheta: Number(this.options.fa2Settings.barnesHutTheta),
-                edgeWeightInfluence: Number(this.options.fa2Settings.edgeWeightInfluence),
-                gravity: Number(this.options.fa2Settings.gravity),
-                scalingRatio: Number(this.options.fa2Settings.scalingRatio),
-                slowDown: Number(this.options.fa2Settings.slowDown),
-                linLogMode: Boolean(this.options.fa2Settings.linLogMode)
-            };
+            // Use synchronous forceAtlas2.assign() instead of FA2Layout to avoid Web Worker issues
+            const forceAtlas2 = graphologyLibrary.forceAtlas2;
 
-            this.fa2Layout = new FA2Layout(this.graph, {
-                settings: cleanSettings
-            });
-
-            // Run layout for a fixed number of iterations
-            const iterations = 500;
-
-            // Start the layout
-            this.fa2Layout.start();
-
-            // Run iterations
-            for (let i = 0; i < iterations; i++) {
-                // The layout runs automatically, just need to wait
-                if (i % 100 === 0) {
-                    console.log(`ForceAtlas2 iteration ${i}/${iterations}`);
-                    // Refresh renderer periodically to show progress
-                    this.renderer.refresh();
-                    await new Promise(resolve => setTimeout(resolve, 10));
-                }
+            if (!forceAtlas2 || !forceAtlas2.assign) {
+                console.warn('forceAtlas2.assign not available, skipping initial layout');
+                return;
             }
 
-            // Stop and kill the layout
-            this.fa2Layout.stop();
-            this.fa2Layout.kill();
-            this.fa2Layout = null;
+            const settings = {
+                iterations: 500,
+                getEdgeWeight: 'weight',  // Use 'weight' attribute from edges
+                settings: {
+                    adjustSizes: this.options.fa2Settings.adjustSizes,
+                    barnesHutOptimize: this.options.fa2Settings.barnesHutOptimize,
+                    barnesHutTheta: this.options.fa2Settings.barnesHutTheta,
+                    edgeWeightInfluence: this.options.fa2Settings.edgeWeightInfluence,
+                    gravity: this.options.fa2Settings.gravity,
+                    scalingRatio: this.options.fa2Settings.scalingRatio,
+                    slowDown: this.options.fa2Settings.slowDown,
+                    linLogMode: this.options.fa2Settings.linLogMode
+                }
+            };
+
+            // Run synchronous layout (no Web Worker)
+            console.log('Running 500 iterations of ForceAtlas2 with weighted edges...');
+            forceAtlas2.assign(this.graph, settings);
+
+            // Refresh renderer
+            this.renderer.refresh();
 
             console.log('Initial ForceAtlas2 layout complete');
 
@@ -325,56 +315,25 @@ class GraphologyNetworkVisualizer {
      * Start ForceAtlas2 layout (continuous)
      */
     startLayout() {
-        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.FA2Layout) {
+        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.forceAtlas2) {
             console.warn('ForceAtlas2 layout not available');
             return;
         }
 
         try {
-            // Kill existing layout if any
-            if (this.fa2Layout) {
-                try {
-                    this.fa2Layout.stop();
-                    this.fa2Layout.kill();
-                } catch (e) {
-                    // Ignore errors if already stopped
-                }
-            }
-
             // Cancel any existing animation frame
             if (this.layoutAnimationFrame) {
                 cancelAnimationFrame(this.layoutAnimationFrame);
                 this.layoutAnimationFrame = null;
             }
 
-            // Create new FA2Layout instance with current settings
-            // Ensure settings are serializable (no functions, only primitives)
-            const FA2Layout = graphologyLibrary.FA2Layout;
-            const cleanSettings = {
-                adjustSizes: Boolean(this.options.fa2Settings.adjustSizes),
-                barnesHutOptimize: Boolean(this.options.fa2Settings.barnesHutOptimize),
-                barnesHutTheta: Number(this.options.fa2Settings.barnesHutTheta),
-                edgeWeightInfluence: Number(this.options.fa2Settings.edgeWeightInfluence),
-                gravity: Number(this.options.fa2Settings.gravity),
-                scalingRatio: Number(this.options.fa2Settings.scalingRatio),
-                slowDown: Number(this.options.fa2Settings.slowDown),
-                linLogMode: Boolean(this.options.fa2Settings.linLogMode)
-            };
-
-            this.fa2Layout = new FA2Layout(this.graph, {
-                settings: cleanSettings
-            });
-
             // Mark as running
             this.layoutIsRunning = true;
 
-            // Start continuous layout
-            this.fa2Layout.start();
+            // Setup animation loop to run layout iterations
+            this.animateLayout();
 
-            // Setup animation loop to refresh renderer
-            this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
-
-            console.log('ForceAtlas2 layout started with settings:', cleanSettings);
+            console.log('ForceAtlas2 layout started');
         } catch (error) {
             console.error('Error starting layout:', error);
             this.layoutIsRunning = false;
@@ -383,11 +342,28 @@ class GraphologyNetworkVisualizer {
 
     /**
      * Animation loop for continuous layout
+     * Runs synchronous ForceAtlas2 iterations on each frame
      */
     animateLayout() {
-        if (this.layoutIsRunning && this.fa2Layout) {
-            this.renderer.refresh();
-            this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
+        if (this.layoutIsRunning && graphologyLibrary && graphologyLibrary.forceAtlas2) {
+            try {
+                // Run 1 iteration of ForceAtlas2 synchronously
+                const forceAtlas2 = graphologyLibrary.forceAtlas2;
+                forceAtlas2.assign(this.graph, {
+                    iterations: 1,
+                    getEdgeWeight: 'weight',  // Use 'weight' attribute from edges
+                    settings: this.options.fa2Settings
+                });
+
+                // Refresh renderer
+                this.renderer.refresh();
+
+                // Schedule next frame
+                this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
+            } catch (error) {
+                console.error('Error in layout animation:', error);
+                this.layoutIsRunning = false;
+            }
         }
     }
 
@@ -397,21 +373,13 @@ class GraphologyNetworkVisualizer {
     stopLayout() {
         this.layoutIsRunning = false;
 
-        if (this.fa2Layout) {
-            try {
-                this.fa2Layout.stop();
-            } catch (e) {
-                console.warn('Error stopping layout:', e);
-            }
-
-            console.log('ForceAtlas2 layout stopped');
-        }
-
         // Cancel animation frame
         if (this.layoutAnimationFrame) {
             cancelAnimationFrame(this.layoutAnimationFrame);
             this.layoutAnimationFrame = null;
         }
+
+        console.log('ForceAtlas2 layout stopped');
     }
 
     /**
@@ -709,11 +677,8 @@ class GraphologyNetworkVisualizer {
      * Destroy renderer
      */
     destroy() {
-        // Stop ForceAtlas2 if running
-        if (this.fa2Layout) {
-            this.fa2Layout.kill();
-            this.fa2Layout = null;
-        }
+        // Stop layout if running
+        this.stopLayout();
 
         if (this.renderer) {
             this.renderer.kill();
