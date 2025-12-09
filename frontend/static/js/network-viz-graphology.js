@@ -27,8 +27,8 @@ class GraphologyNetworkVisualizer {
         this.graph = new graphology.Graph({ type: 'undirected' });
         this.renderer = null;
         this.rawData = null;
-        this.fa2Layout = null;  // ForceAtlas2 layout instance
         this.layoutIsRunning = false;
+        this.layoutAnimationFrame = null;
 
         // Configuration (similar to some2net)
         this.options = {
@@ -287,10 +287,10 @@ class GraphologyNetworkVisualizer {
 
     /**
      * Start ForceAtlas2 layout (continuous)
-     * Matches some2net implementation
+     * Uses synchronous layoutForceAtlas2 to avoid Web Worker issues
      */
     startLayout() {
-        if (typeof graphologyLibrary === 'undefined' || !graphologyLibrary.FA2Layout) {
+        if (typeof graphologyLibrary === 'undefined') {
             console.warn('ForceAtlas2 layout not available');
             return;
         }
@@ -298,31 +298,19 @@ class GraphologyNetworkVisualizer {
         try {
             console.log('Starting ForceAtlas2 layout...');
 
-            // Debug: log available objects
-            if (typeof graphologyLibrary !== 'undefined') {
-                console.log('Available in graphologyLibrary:', Object.keys(graphologyLibrary));
+            // Use synchronous layoutForceAtlas2 instead of FA2Layout (which uses Web Workers)
+            const layoutForceAtlas2 = graphologyLibrary.layoutForceAtlas2;
+
+            if (!layoutForceAtlas2 || !layoutForceAtlas2.assign) {
+                console.error('layoutForceAtlas2.assign not available');
+                return;
             }
 
-            // Create layout instance if it doesn't exist
-            if (!this.fa2Layout) {
-                const FA2Layout = graphologyLibrary.FA2Layout;
-
-                if (!FA2Layout) {
-                    throw new Error('FA2Layout not found in graphologyLibrary');
-                }
-
-                console.log('Creating FA2Layout instance...');
-
-                this.fa2Layout = new FA2Layout(this.graph, {
-                    settings: this.options.fa2Settings
-                });
-
-                console.log('FA2Layout instance created');
-            }
-
-            // Start continuous layout
-            this.fa2Layout.start();
+            // Mark as running
             this.layoutIsRunning = true;
+
+            // Start animation loop for continuous layout
+            this.animateLayout();
 
             console.log('ForceAtlas2 layout started');
         } catch (error) {
@@ -332,20 +320,52 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Stop ForceAtlas2 layout
-     * Matches some2net implementation
+     * Animation loop for continuous layout using synchronous iterations
      */
-    stopLayout() {
-        if (this.layoutIsRunning && this.fa2Layout) {
-            console.log('Stopping ForceAtlas2 layout...');
-            this.fa2Layout.stop();
-            this.layoutIsRunning = false;
+    animateLayout() {
+        if (!this.layoutIsRunning || !graphologyLibrary || !graphologyLibrary.layoutForceAtlas2) {
+            return;
+        }
+
+        try {
+            const layoutForceAtlas2 = graphologyLibrary.layoutForceAtlas2;
+
+            // Run 1 iteration synchronously
+            layoutForceAtlas2.assign(this.graph, {
+                iterations: 1,
+                settings: this.options.fa2Settings
+            });
+
+            // Refresh renderer
+            this.renderer.refresh();
+
+            // Schedule next frame
+            this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
+        } catch (error) {
+            console.error('Error in layout animation:', error);
+            this.stopLayout();
         }
     }
 
     /**
-     * Update layout settings (kills and recreates layout if running)
-     * Matches some2net implementation
+     * Stop ForceAtlas2 layout
+     */
+    stopLayout() {
+        if (this.layoutIsRunning) {
+            console.log('Stopping ForceAtlas2 layout...');
+            this.layoutIsRunning = false;
+
+            // Cancel animation frame
+            if (this.layoutAnimationFrame) {
+                cancelAnimationFrame(this.layoutAnimationFrame);
+                this.layoutAnimationFrame = null;
+            }
+        }
+    }
+
+    /**
+     * Update layout settings
+     * Settings are applied on next iteration since we're using synchronous mode
      */
     updateLayoutSettings(newSettings) {
         // Update stored settings
@@ -354,20 +374,8 @@ class GraphologyNetworkVisualizer {
             ...newSettings
         };
 
-        // If layout exists, recreate with new settings
-        if (this.fa2Layout) {
-            this.fa2Layout.kill();  // Destroy current layout
-
-            const FA2Layout = graphologyLibrary.FA2Layout;
-            this.fa2Layout = new FA2Layout(this.graph, {
-                settings: this.options.fa2Settings
-            });
-
-            // Restart if it was running
-            if (this.layoutIsRunning) {
-                this.fa2Layout.start();
-            }
-        }
+        // Settings will be applied on next animation frame
+        // No need to restart - synchronous mode uses settings directly
 
         console.log('Layout settings updated:', this.options.fa2Settings);
     }
