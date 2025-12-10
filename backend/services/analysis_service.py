@@ -752,24 +752,74 @@ class AnalysisService:
             return entities
 
         elif config.extraction_method == "transformer":
-            # TODO: Implement when Phase 1 is complete
-            # from backend.core.nlp.ner_transformer import TransformerNERExtractor
-            # extractor = TransformerNERExtractor()
-            # entities = await extractor.extract_entities(
-            #     text=content.extracted_text,
-            #     language=content.language or "en",
-            #     entity_types=config.entity_types,
-            # )
+            # v6.0.0: Transformer-based NER extraction
+            try:
+                from backend.core.nlp.ner_transformer import TransformerNERExtractor
 
-            logger.warning(
-                f"NER extraction method 'transformer' not yet implemented. "
-                f"TransformerNERExtractor from Phase 1 required. "
-                f"Falling back to 'spacy' method."
-            )
+                logger.info(
+                    f"Extracting entities using transformer method for content {website_content_id}"
+                )
 
-            # Fallback to spacy method
-            config.extraction_method = "spacy"
-            return await self.extract_entities(website_content_id, config)
+                # Create transformer extractor
+                extractor = TransformerNERExtractor(
+                    confidence_threshold=config.confidence_threshold,
+                    device=-1  # CPU by default, TODO: make configurable
+                )
+
+                # Extract entities
+                transformer_entities = await extractor.extract_entities(
+                    text=content.extracted_text,
+                    language=content.language or "en",
+                    entity_types=config.entity_types,
+                    max_entities=200  # Extract more, we'll filter later
+                )
+
+                # Convert to dictionary format (matching spacy method)
+                entities = []
+                for entity in transformer_entities:
+                    # Filter by confidence (already done by extractor, but double-check)
+                    if entity.confidence < config.confidence_threshold:
+                        continue
+
+                    entities.append({
+                        "text": entity.text,
+                        "label": entity.entity_type,
+                        "start_pos": entity.start,
+                        "end_pos": entity.end,
+                        "confidence": entity.confidence,
+                        "extraction_method": "transformer",
+                        "frequency": entity.frequency,
+                        "language": content.language or "en",
+                    })
+
+                # Limit to max entities
+                entities = entities[:config.max_entities_per_content]
+
+                logger.info(
+                    f"Extracted {len(entities)} entities using transformer method "
+                    f"for content {website_content_id}"
+                )
+
+                return entities
+
+            except ImportError as e:
+                logger.error(
+                    f"Transformer extraction failed due to missing dependencies: {e}. "
+                    f"Install with: pip install transformers torch. "
+                    f"Falling back to spacy method."
+                )
+                # Fallback to spacy method
+                config.extraction_method = "spacy"
+                return await self.extract_entities(website_content_id, config)
+
+            except Exception as e:
+                logger.error(
+                    f"Transformer extraction failed: {e}. "
+                    f"Falling back to spacy method."
+                )
+                # Fallback to spacy method
+                config.extraction_method = "spacy"
+                return await self.extract_entities(website_content_id, config)
 
         else:
             raise ValueError(
