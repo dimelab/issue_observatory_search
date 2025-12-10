@@ -11,7 +11,9 @@
  * - Node coloring by type
  * - Search and filtering
  * - Performance optimized for large networks
+ * - v6.0.0.1: Node size control and giant component filter
  */
+console.log('Loading network-viz-graphology.js v6.0.0.1');
 
 class GraphologyNetworkVisualizer {
     constructor(containerId, options = {}) {

@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
 <!-- v6.0.0: Graphology visualizer (default), Vis.js kept for backward compatibility -->
-<script src="/static/js/network-viz-graphology.js"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.1"></script>
 <script src="/static/js/network-viz.js"></script>
 <style>
     #network-container {
@@ -402,11 +402,16 @@
             // v6.0.0: Giant component filter
             toggleGiantComponent() {
                 console.log('toggleGiantComponent called, value:', this.giantComponentOnly);
+                console.log('Visualizer exists?', !!this.visualizer);
+                console.log('Method exists?', this.visualizer && typeof this.visualizer.setGiantComponentFilter);
+                console.log('Available methods:', this.visualizer ? Object.getOwnPropertyNames(Object.getPrototypeOf(this.visualizer)) : 'no visualizer');
+
                 if (this.visualizer && typeof this.visualizer.setGiantComponentFilter === 'function') {
                     this.visualizer.setGiantComponentFilter(this.giantComponentOnly);
                     this.updateStats();
                 } else {
                     console.error('Visualizer or setGiantComponentFilter method not available');
+                    console.error('this.visualizer:', this.visualizer);
                 }
             },
 
