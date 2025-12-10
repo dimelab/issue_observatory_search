@@ -280,8 +280,8 @@ class NetworkService:
             f"method={ner_config.extraction_method if ner_config else 'spacy'}"
         )
 
-        # Check if analysis is needed and trigger it
-        await self._ensure_content_analyzed(session_ids)
+        # Check if analysis is needed and trigger it (v6.0.0: pass NER config)
+        await self._ensure_content_analyzed(session_ids, ner_config=ner_config)
 
         # Build network
         builder = WebsiteNERNetworkBuilder(
@@ -589,20 +589,29 @@ class NetworkService:
 
         return str(file_path)
 
-    async def _ensure_content_analyzed(self, session_ids: List[int]) -> None:
+    async def _ensure_content_analyzed(
+        self,
+        session_ids: List[int],
+        ner_config: Optional[NERExtractionConfig] = None
+    ) -> None:
         """
         Ensure content from sessions is analyzed. Runs analysis inline if needed.
 
         Args:
             session_ids: List of session IDs to check
+            ner_config: v6.0.0 - NER extraction configuration for entity extraction
         """
         from sqlalchemy import select, func
         from backend.models.scraping import ScrapingJob
         from backend.models.website import WebsiteContent
-        from backend.models.analysis import ExtractedNoun
+        from backend.models.analysis import ExtractedNoun, ExtractedEntity
         from backend.services.analysis_service import AnalysisService
 
-        logger.info(f"Checking if content from sessions {session_ids} is analyzed")
+        extraction_method = ner_config.extraction_method if ner_config else "spacy"
+        logger.info(
+            f"Checking if content from sessions {session_ids} is analyzed "
+            f"(NER method: {extraction_method})"
+        )
 
         # Get scraping jobs for these sessions
         stmt_jobs = (
@@ -621,42 +630,71 @@ class NetworkService:
 
         # Check each job to see if it needs analysis
         for job in jobs:
-            # Get unanalyzed content IDs
-            stmt_unanalyzed = (
-                select(WebsiteContent.id)
-                .outerjoin(ExtractedNoun, WebsiteContent.id == ExtractedNoun.website_content_id)
-                .where(
-                    WebsiteContent.scraping_job_id == job.id,
-                    WebsiteContent.status == 'success',
-                    ExtractedNoun.id.is_(None)  # No analysis yet
+            # v6.0.0: Check for entities with the requested extraction method
+            if ner_config:
+                # Check if entities with this extraction method already exist
+                stmt_unanalyzed = (
+                    select(WebsiteContent.id)
+                    .outerjoin(
+                        ExtractedEntity,
+                        (WebsiteContent.id == ExtractedEntity.website_content_id) &
+                        (ExtractedEntity.extraction_method == extraction_method)
+                    )
+                    .where(
+                        WebsiteContent.scraping_job_id == job.id,
+                        WebsiteContent.status == 'success',
+                        ExtractedEntity.id.is_(None)  # No entities with this method yet
+                    )
                 )
-            )
+            else:
+                # Legacy: Check for noun analysis
+                stmt_unanalyzed = (
+                    select(WebsiteContent.id)
+                    .outerjoin(ExtractedNoun, WebsiteContent.id == ExtractedNoun.website_content_id)
+                    .where(
+                        WebsiteContent.scraping_job_id == job.id,
+                        WebsiteContent.status == 'success',
+                        ExtractedNoun.id.is_(None)  # No analysis yet
+                    )
+                )
+
             unanalyzed_result = await self.session.execute(stmt_unanalyzed)
             unanalyzed_ids = [row[0] for row in unanalyzed_result.all()]
 
             if unanalyzed_ids:
                 logger.info(
-                    f"Job {job.id} has {len(unanalyzed_ids)} unanalyzed pages. "
-                    f"Running analysis inline..."
+                    f"Job {job.id} has {len(unanalyzed_ids)} pages without {extraction_method} entities. "
+                    f"Running extraction inline..."
                 )
 
-                # Analyze each piece of content inline (not as separate tasks)
+                # Extract entities for each piece of content inline (not as separate tasks)
                 for content_id in unanalyzed_ids:
                     try:
-                        await analysis_service.analyze_content(
-                            content_id=content_id,
-                            extract_nouns=True,
-                            extract_entities=True,
-                            max_nouns=100,
-                            min_frequency=2
-                        )
-                        logger.debug(f"Analyzed content {content_id}")
+                        if ner_config:
+                            # v6.0.0: Extract entities with specific config
+                            await analysis_service.extract_entities(
+                                website_content_id=content_id,
+                                config=ner_config
+                            )
+                        else:
+                            # Legacy: Full analysis with nouns and entities
+                            await analysis_service.analyze_content(
+                                content_id=content_id,
+                                extract_nouns=True,
+                                extract_entities=True,
+                                max_nouns=100,
+                                min_frequency=2
+                            )
+                        logger.debug(f"Extracted entities for content {content_id} using {extraction_method}")
                     except Exception as e:
-                        logger.error(f"Failed to analyze content {content_id}: {e}")
+                        logger.error(f"Failed to extract entities for content {content_id}: {e}")
 
-                # Commit all analysis results
+                # Commit all extraction results
                 await self.session.commit()
-                logger.info(f"Completed analysis for {len(unanalyzed_ids)} pages from job {job.id}")
+                logger.info(
+                    f"Completed {extraction_method} entity extraction for {len(unanalyzed_ids)} "
+                    f"pages from job {job.id}"
+                )
 
     async def get_network_by_id(self, network_id: int) -> Optional[NetworkExport]:
         """
