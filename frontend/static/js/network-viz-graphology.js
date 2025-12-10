@@ -11,9 +11,9 @@
  * - Node coloring by type
  * - Search and filtering
  * - Performance optimized for large networks
- * - v6.0.0.1: Node size control and giant component filter
+ * - v6.0.0.2: Node size control and giant component filter (default size 0.5x)
  */
-console.log('Loading network-viz-graphology.js v6.0.0.1');
+console.log('Loading network-viz-graphology.js v6.0.0.2');
 
 class GraphologyNetworkVisualizer {
     constructor(containerId, options = {}) {
@@ -57,7 +57,7 @@ class GraphologyNetworkVisualizer {
 
         // State
         this.selectedNode = null;
-        this.nodeSizeMultiplier = 1.0; // Node size control (0.1-3.0)
+        this.nodeSizeMultiplier = 0.5; // Node size control (0.1-3.0, default 0.5x)
         this.filters = {
             nodeTypes: [],
             search: '',
