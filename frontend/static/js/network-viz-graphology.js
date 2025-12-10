@@ -434,6 +434,7 @@ class GraphologyNetworkVisualizer {
      * Toggle giant component filter
      */
     setGiantComponentFilter(enabled) {
+        console.log(`Giant component filter: ${enabled ? 'ON' : 'OFF'}`);
         this.filters.giantComponentOnly = enabled;
         this.applyFilters();
     }
@@ -507,18 +508,29 @@ class GraphologyNetworkVisualizer {
      * Apply all active filters
      */
     applyFilters() {
-        if (!this.rawData) return;
+        if (!this.rawData) {
+            console.warn('No rawData available for filtering');
+            return;
+        }
+
+        console.log('Applying filters:', {
+            nodeTypes: this.filters.nodeTypes,
+            search: this.filters.search,
+            giantComponentOnly: this.filters.giantComponentOnly
+        });
 
         // Clear and rebuild graph with filtered data
         this.graph.clear();
 
         let filteredNodes = this.rawData.nodes;
+        console.log(`Starting with ${filteredNodes.length} nodes`);
 
         // Filter by type
         if (this.filters.nodeTypes.length > 0) {
             filteredNodes = filteredNodes.filter(node =>
                 this.filters.nodeTypes.includes(node.nodeType)
             );
+            console.log(`After type filter: ${filteredNodes.length} nodes`);
         }
 
         // Filter by search query
@@ -526,6 +538,7 @@ class GraphologyNetworkVisualizer {
             filteredNodes = filteredNodes.filter(node =>
                 node.label.toLowerCase().includes(this.filters.search)
             );
+            console.log(`After search filter: ${filteredNodes.length} nodes`);
         }
 
         // Get filtered node IDs
@@ -535,10 +548,13 @@ class GraphologyNetworkVisualizer {
         let filteredEdges = this.rawData.edges.filter(edge =>
             nodeIds.has(edge.source) && nodeIds.has(edge.target)
         );
+        console.log(`Filtered edges: ${filteredEdges.length}`);
 
         // Apply giant component filter
         if (this.filters.giantComponentOnly) {
+            console.log('Extracting giant component...');
             const components = this.getConnectedComponents(filteredNodes, filteredEdges);
+            console.log(`Found ${components.length} connected component(s)`);
 
             if (components.length > 0) {
                 const giantComponent = new Set(components[0]);
@@ -546,6 +562,10 @@ class GraphologyNetworkVisualizer {
                 const totalSize = filteredNodes.length;
 
                 console.log(`Giant component: ${componentSize} nodes (${(componentSize/totalSize*100).toFixed(1)}% of network)`);
+
+                if (components.length > 1) {
+                    console.log(`Other components: ${components.slice(1).map(c => c.length).join(', ')} nodes`);
+                }
 
                 // Filter to only giant component nodes
                 filteredNodes = filteredNodes.filter(node => giantComponent.has(node.id));
@@ -555,6 +575,8 @@ class GraphologyNetworkVisualizer {
                 filteredEdges = filteredEdges.filter(edge =>
                     giantComponent.has(edge.source) && giantComponent.has(edge.target)
                 );
+
+                console.log(`After giant component: ${filteredNodes.length} nodes, ${filteredEdges.length} edges`);
             }
         }
 
@@ -583,6 +605,7 @@ class GraphologyNetworkVisualizer {
             }
         });
 
+        console.log(`Final graph: ${this.graph.order} nodes, ${this.graph.size} edges`);
         this.renderer.refresh();
     }
 
@@ -592,15 +615,18 @@ class GraphologyNetworkVisualizer {
     clearFilters() {
         this.filters.nodeTypes = [];
         this.filters.search = '';
+        this.filters.giantComponentOnly = false;
 
         if (this.rawData) {
             // Rebuild full graph
             this.graph.clear();
 
             this.rawData.nodes.forEach(({ id, label, nodeType, attributes, x, y }) => {
+                const baseSize = 10;
                 this.graph.addNode(id, {
                     label,
-                    size: 10,
+                    size: baseSize * this.nodeSizeMultiplier,
+                    baseSize: baseSize,
                     color: this.getNodeColor(nodeType),
                     node_type: nodeType,
                     x: x !== undefined ? x : 0,
