@@ -194,7 +194,7 @@
                     <label class="flex items-center cursor-pointer">
                         <input type="checkbox"
                                x-model="giantComponentOnly"
-                               @change="toggleGiantComponent()"
+                               @change="console.log('Checkbox changed:', $event.target.checked, 'giantComponentOnly:', giantComponentOnly); toggleGiantComponent()"
                                id="giantComponent"
                                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">
@@ -202,6 +202,11 @@
                         </span>
                     </label>
                     <p class="mt-1 ml-6 text-xs text-gray-500">Show only the largest connected component</p>
+
+                    <!-- Debug: Show current state -->
+                    <p class="mt-1 ml-6 text-xs text-gray-400" x-show="giantComponentOnly">
+                        ✓ Filter is active
+                    </p>
                 </div>
 
                 <!-- Node Type Filters -->
@@ -396,9 +401,12 @@
 
             // v6.0.0: Giant component filter
             toggleGiantComponent() {
+                console.log('toggleGiantComponent called, value:', this.giantComponentOnly);
                 if (this.visualizer && typeof this.visualizer.setGiantComponentFilter === 'function') {
                     this.visualizer.setGiantComponentFilter(this.giantComponentOnly);
                     this.updateStats();
+                } else {
+                    console.error('Visualizer or setGiantComponentFilter method not available');
                 }
             },
 
