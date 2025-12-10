@@ -144,6 +144,20 @@
                            class="w-full">
                 </div>
 
+                <!-- Node Size (new in v6.0.0) -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-sm font-medium text-gray-700">Node Size</label>
+                        <span class="text-sm text-gray-600" x-text="nodeSizeMultiplier.toFixed(1)"></span>
+                    </div>
+                    <input type="range"
+                           x-model.number="nodeSizeMultiplier"
+                           @input="updateNodeSize()"
+                           min="0.1" max="3.0" step="0.1"
+                           class="w-full">
+                    <div class="text-xs text-gray-500 mt-1">Adjust the size of all nodes</div>
+                </div>
+
                 <!-- Barnes-Hut Optimization -->
                 <div class="flex items-center">
                     <input type="checkbox"
@@ -173,8 +187,26 @@
 
             <!-- Filters -->
             <div class="bg-white rounded-lg shadow-md p-4">
-                <h3 class="text-sm font-semibold text-gray-900 mb-3">Filter by Type</h3>
+                <h3 class="text-sm font-semibold text-gray-900 mb-3">Filters</h3>
+
+                <!-- Giant Component Filter (new in v6.0.0) -->
+                <div class="mb-4 pb-4 border-b border-gray-200">
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox"
+                               x-model="giantComponentOnly"
+                               @change="toggleGiantComponent()"
+                               id="giantComponent"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">
+                            🔍 Giant Component Only
+                        </span>
+                    </label>
+                    <p class="mt-1 ml-6 text-xs text-gray-500">Show only the largest connected component</p>
+                </div>
+
+                <!-- Node Type Filters -->
                 <div class="space-y-2">
+                    <p class="text-xs font-medium text-gray-600 mb-2">Filter by Type</p>
                     <label class="flex items-center cursor-pointer">
                         <input type="checkbox"
                                value="search"
@@ -222,7 +254,7 @@
                 </div>
                 <button @click="clearFilters()"
                         class="mt-3 w-full px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
-                    Clear Filters
+                    Clear All Filters
                 </button>
             </div>
 
@@ -289,6 +321,8 @@
             selectedNode: null,
             showLayoutSettings: false,
             layoutRunning: false,
+            giantComponentOnly: false, // v6.0.0: Giant component filter
+            nodeSizeMultiplier: 1.0,   // v6.0.0: Node size control
             layoutSettings: {
                 gravity: 1.0,
                 scalingRatio: 10,
@@ -355,8 +389,24 @@
             clearFilters() {
                 this.searchQuery = '';
                 this.filterTypes = [];
+                this.giantComponentOnly = false;
                 this.visualizer.clearFilters();
                 this.updateStats();
+            },
+
+            // v6.0.0: Giant component filter
+            toggleGiantComponent() {
+                if (this.visualizer && typeof this.visualizer.setGiantComponentFilter === 'function') {
+                    this.visualizer.setGiantComponentFilter(this.giantComponentOnly);
+                    this.updateStats();
+                }
+            },
+
+            // v6.0.0: Node size control
+            updateNodeSize() {
+                if (this.visualizer && typeof this.visualizer.setNodeSizeMultiplier === 'function') {
+                    this.visualizer.setNodeSizeMultiplier(this.nodeSizeMultiplier);
+                }
             },
 
             // Layout control methods

@@ -55,9 +55,11 @@ class GraphologyNetworkVisualizer {
 
         // State
         this.selectedNode = null;
+        this.nodeSizeMultiplier = 1.0; // Node size control (0.1-3.0)
         this.filters = {
             nodeTypes: [],
-            search: ''
+            search: '',
+            giantComponentOnly: false
         };
 
         // Initialize
@@ -209,9 +211,11 @@ class GraphologyNetworkVisualizer {
         // Add nodes to graph
         nodesData.forEach(({ id, label, nodeType, attributes, x, y }) => {
             // Only include serializable primitive attributes
+            const baseSize = 10;
             const nodeAttrs = {
                 label: String(label),
-                size: 10,
+                size: baseSize * this.nodeSizeMultiplier,
+                baseSize: baseSize, // Store base size for later adjustments
                 color: this.getNodeColor(nodeType),
                 node_type: String(nodeType),
                 x: Number(x !== undefined ? x : 0),
@@ -427,6 +431,79 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
+     * Toggle giant component filter
+     */
+    setGiantComponentFilter(enabled) {
+        this.filters.giantComponentOnly = enabled;
+        this.applyFilters();
+    }
+
+    /**
+     * Set node size multiplier (0.1-3.0)
+     * Based on some2net implementation
+     */
+    setNodeSizeMultiplier(multiplier) {
+        this.nodeSizeMultiplier = Math.max(0.1, Math.min(3.0, multiplier));
+
+        // Update all node sizes
+        this.graph.forEachNode((node, attributes) => {
+            const baseSize = attributes.baseSize || 10;
+            this.graph.setNodeAttribute(node, 'size', baseSize * this.nodeSizeMultiplier);
+        });
+
+        this.renderer.refresh();
+    }
+
+    /**
+     * Extract connected components using BFS
+     * Returns array of arrays, each containing node IDs in a component
+     */
+    getConnectedComponents(nodes, edges) {
+        const nodeIds = new Set(nodes.map(n => n.id));
+        const adjacencyList = new Map();
+
+        // Build adjacency list
+        nodeIds.forEach(id => adjacencyList.set(id, []));
+        edges.forEach(({ source, target }) => {
+            if (nodeIds.has(source) && nodeIds.has(target)) {
+                adjacencyList.get(source).push(target);
+                adjacencyList.get(target).push(source);
+            }
+        });
+
+        const visited = new Set();
+        const components = [];
+
+        // BFS to find components
+        for (const startNode of nodeIds) {
+            if (visited.has(startNode)) continue;
+
+            const component = [];
+            const queue = [startNode];
+            visited.add(startNode);
+
+            while (queue.length > 0) {
+                const node = queue.shift();
+                component.push(node);
+
+                const neighbors = adjacencyList.get(node) || [];
+                for (const neighbor of neighbors) {
+                    if (!visited.has(neighbor)) {
+                        visited.add(neighbor);
+                        queue.push(neighbor);
+                    }
+                }
+            }
+
+            components.push(component);
+        }
+
+        // Sort by size (largest first)
+        components.sort((a, b) => b.length - a.length);
+        return components;
+    }
+
+    /**
      * Apply all active filters
      */
     applyFilters() {
@@ -452,18 +529,42 @@ class GraphologyNetworkVisualizer {
         }
 
         // Get filtered node IDs
-        const nodeIds = new Set(filteredNodes.map(n => n.id));
+        let nodeIds = new Set(filteredNodes.map(n => n.id));
 
         // Filter edges
-        const filteredEdges = this.rawData.edges.filter(edge =>
+        let filteredEdges = this.rawData.edges.filter(edge =>
             nodeIds.has(edge.source) && nodeIds.has(edge.target)
         );
 
+        // Apply giant component filter
+        if (this.filters.giantComponentOnly) {
+            const components = this.getConnectedComponents(filteredNodes, filteredEdges);
+
+            if (components.length > 0) {
+                const giantComponent = new Set(components[0]);
+                const componentSize = giantComponent.size;
+                const totalSize = filteredNodes.length;
+
+                console.log(`Giant component: ${componentSize} nodes (${(componentSize/totalSize*100).toFixed(1)}% of network)`);
+
+                // Filter to only giant component nodes
+                filteredNodes = filteredNodes.filter(node => giantComponent.has(node.id));
+                nodeIds = giantComponent;
+
+                // Filter edges again
+                filteredEdges = filteredEdges.filter(edge =>
+                    giantComponent.has(edge.source) && giantComponent.has(edge.target)
+                );
+            }
+        }
+
         // Rebuild graph
         filteredNodes.forEach(({ id, label, nodeType, attributes, x, y }) => {
+            const baseSize = 10;
             this.graph.addNode(id, {
                 label,
-                size: 10,
+                size: baseSize * this.nodeSizeMultiplier,
+                baseSize: baseSize,
                 color: this.getNodeColor(nodeType),
                 node_type: nodeType,
                 x: x !== undefined ? x : 0,
