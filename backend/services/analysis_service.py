@@ -731,11 +731,12 @@ class AnalysisService:
                     continue
 
                 entities.append({
+                    "website_content_id": content.id,
                     "text": entity.text,
                     "label": entity.label,
-                    "start_pos": entity.start,
-                    "end_pos": entity.end,
-                    "confidence": entity.confidence,
+                    "start_pos": entity.start if entity.start is not None else 0,
+                    "end_pos": entity.end if entity.end is not None else 0,
+                    "confidence": entity.confidence if entity.confidence is not None else 1.0,
                     "extraction_method": config.extraction_method,
                     "frequency": 1,  # Will be aggregated later
                     "language": content.language or "en",
@@ -744,8 +745,13 @@ class AnalysisService:
             # Limit to max entities
             entities = entities[:config.max_entities_per_content]
 
+            # Store entities in database
+            if entities:
+                await self.repository.bulk_create_entities(entities)
+                await self.session.commit()
+
             logger.info(
-                f"Extracted {len(entities)} entities from content {website_content_id} "
+                f"Extracted and stored {len(entities)} entities from content {website_content_id} "
                 f"using method '{config.extraction_method}'"
             )
 
@@ -782,21 +788,27 @@ class AnalysisService:
                         continue
 
                     entities.append({
+                        "website_content_id": content.id,
                         "text": entity.text,
                         "label": entity.entity_type,
-                        "start_pos": entity.start,
-                        "end_pos": entity.end,
-                        "confidence": entity.confidence,
+                        "start_pos": entity.start if entity.start is not None else 0,
+                        "end_pos": entity.end if entity.end is not None else 0,
+                        "confidence": entity.confidence if entity.confidence is not None else 1.0,
                         "extraction_method": "transformer",
-                        "frequency": entity.frequency,
+                        "frequency": entity.frequency if entity.frequency is not None else 1,
                         "language": content.language or "en",
                     })
 
                 # Limit to max entities
                 entities = entities[:config.max_entities_per_content]
 
+                # Store entities in database
+                if entities:
+                    await self.repository.bulk_create_entities(entities)
+                    await self.session.commit()
+
                 logger.info(
-                    f"Extracted {len(entities)} entities using transformer method "
+                    f"Extracted and stored {len(entities)} entities using transformer method "
                     f"for content {website_content_id}"
                 )
 

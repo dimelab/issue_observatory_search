@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
 <!-- v6.0.0: Graphology visualizer (default), Vis.js kept for backward compatibility -->
-<script src="/static/js/network-viz-graphology.js?v=6.0.0.2"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.3"></script>
 <script src="/static/js/network-viz.js"></script>
 <style>
     #network-container {
@@ -209,6 +209,20 @@
                     </p>
                 </div>
 
+                <!-- Minimum Degree Filter (new in v6.0.0.3) -->
+                <div class="mb-4 pb-4 border-b border-gray-200">
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-sm font-medium text-gray-700">Min. Degree</label>
+                        <span class="text-sm text-gray-600" x-text="minDegree"></span>
+                    </div>
+                    <input type="range"
+                           x-model.number="minDegree"
+                           @input="updateMinDegree()"
+                           min="0" max="20" step="1"
+                           class="w-full">
+                    <p class="mt-1 text-xs text-gray-500">Hide nodes with fewer connections</p>
+                </div>
+
                 <!-- Node Type Filters -->
                 <div class="space-y-2">
                     <p class="text-xs font-medium text-gray-600 mb-2">Filter by Type</p>
@@ -327,6 +341,7 @@
             showLayoutSettings: false,
             layoutRunning: false,
             giantComponentOnly: false, // v6.0.0: Giant component filter
+            minDegree: 0,              // v6.0.0.3: Minimum degree filter
             nodeSizeMultiplier: 0.5,   // v6.0.0: Node size control (default 0.5x for large networks)
             layoutSettings: {
                 gravity: 1.0,
@@ -395,8 +410,17 @@
                 this.searchQuery = '';
                 this.filterTypes = [];
                 this.giantComponentOnly = false;
+                this.minDegree = 0;
                 this.visualizer.clearFilters();
                 this.updateStats();
+            },
+
+            // v6.0.0.3: Minimum degree filter
+            updateMinDegree() {
+                if (this.visualizer && typeof this.visualizer.setMinDegreeFilter === 'function') {
+                    this.visualizer.setMinDegreeFilter(this.minDegree);
+                    this.updateStats();
+                }
             },
 
             // v6.0.0: Giant component filter

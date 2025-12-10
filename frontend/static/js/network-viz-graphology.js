@@ -11,9 +11,9 @@
  * - Node coloring by type
  * - Search and filtering
  * - Performance optimized for large networks
- * - v6.0.0.2: Node size control and giant component filter (default size 0.5x)
+ * - v6.0.0.3: Node size, giant component, and minimum degree filters (default size 0.5x)
  */
-console.log('Loading network-viz-graphology.js v6.0.0.2');
+console.log('Loading network-viz-graphology.js v6.0.0.3');
 
 class GraphologyNetworkVisualizer {
     constructor(containerId, options = {}) {
@@ -61,7 +61,8 @@ class GraphologyNetworkVisualizer {
         this.filters = {
             nodeTypes: [],
             search: '',
-            giantComponentOnly: false
+            giantComponentOnly: false,
+            minDegree: 0  // Minimum node degree filter
         };
 
         // Initialize
@@ -442,6 +443,16 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
+     * Set minimum degree filter
+     * Only show nodes with degree >= minDegree
+     */
+    setMinDegreeFilter(minDegree) {
+        this.filters.minDegree = Math.max(0, Math.floor(minDegree));
+        console.log(`Minimum degree filter: ${this.filters.minDegree}`);
+        this.applyFilters();
+    }
+
+    /**
      * Set node size multiplier (0.1-3.0)
      * Based on some2net implementation
      */
@@ -607,6 +618,20 @@ class GraphologyNetworkVisualizer {
             }
         });
 
+        // Apply minimum degree filter (after graph is built)
+        if (this.filters.minDegree > 0) {
+            const nodesToRemove = [];
+            this.graph.forEachNode((node) => {
+                const degree = this.graph.degree(node);
+                if (degree < this.filters.minDegree) {
+                    nodesToRemove.push(node);
+                }
+            });
+
+            console.log(`Removing ${nodesToRemove.length} nodes with degree < ${this.filters.minDegree}`);
+            nodesToRemove.forEach(node => this.graph.dropNode(node));
+        }
+
         console.log(`Final graph: ${this.graph.order} nodes, ${this.graph.size} edges`);
         this.renderer.refresh();
     }
@@ -618,6 +643,7 @@ class GraphologyNetworkVisualizer {
         this.filters.nodeTypes = [];
         this.filters.search = '';
         this.filters.giantComponentOnly = false;
+        this.filters.minDegree = 0;
 
         if (this.rawData) {
             // Rebuild full graph
