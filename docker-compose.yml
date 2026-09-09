@@ -1,4 +1,17 @@
-version: '3.8'
+# Issue Observatory — deployment stack.
+#
+# Service/container/port layout matches docs/DEPLOYMENT.md. All services share one
+# image (Dockerfile, target: development) so the worker has the same spaCy models
+# and Playwright browser as the API.
+#
+# Volume names are explicit and project-independent: Docker reuses a volume that
+# already exists under that name and only creates it when missing. To attach to an
+# existing production volume, set POSTGRES_VOLUME_NAME in .env.
+
+x-app-build: &app_build
+  context: .
+  dockerfile: Dockerfile
+  target: development
 
 services:
   postgres:
@@ -9,21 +22,24 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-issue_observatory}
     ports:
-      - "5433:5432"  # External:Internal - Use 5433 to avoid conflict with system PostgreSQL
+      # Bound to loopback: the database must not be reachable from outside the host.
+      - "127.0.0.1:${DB_PORT_HOST:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-issue_observatory}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: issue_observatory_redis
+    command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_PORT_HOST:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -31,92 +47,122 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: development
+    build: *app_build
+    image: issue_observatory:latest
     container_name: issue_observatory_backend
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
+    env_file:
+      - .env
+    environment: &app_env
+      # Derived here rather than taken from .env: inside the compose network the
+      # host is always "postgres", whatever .env says for host-side tooling.
       DATABASE_URL: postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-issue_observatory}
-      REDIS_URL: redis://redis:6379
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-min-32-chars}
-      GOOGLE_CUSTOM_SEARCH_API_KEY: ${GOOGLE_CUSTOM_SEARCH_API_KEY}
-      GOOGLE_CUSTOM_SEARCH_ENGINE_ID: ${GOOGLE_CUSTOM_SEARCH_ENGINE_ID}
-      SERPER_API_KEY: ${SERPER_API_KEY}
-      DEBUG: ${DEBUG:-true}
-      ENVIRONMENT: development
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
       NETWORK_EXPORT_DIR: /app/data/networks
+      PYTHONPATH: /app
     ports:
-      - "3111:8000"
+      - "${BACKEND_PORT_HOST:-8080}:8000"
     volumes:
       - .:/app
-      - app_data:/app/data  # Named volume for application data
+      - app_data:/app/data
     command: >
       sh -c "
-        . .venv/bin/activate &&
-        mkdir -p /app/data/networks &&
+        mkdir -p /app/data/networks /app/data/exports &&
         alembic upgrade head &&
         uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
       "
+    restart: unless-stopped
 
   celery_worker:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    build: *app_build
+    image: issue_observatory:latest
     container_name: issue_observatory_celery_worker
     depends_on:
-      - postgres
-      - redis
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-issue_observatory}
-      REDIS_URL: redis://redis:6379
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
-      GOOGLE_CUSTOM_SEARCH_API_KEY: ${GOOGLE_CUSTOM_SEARCH_API_KEY}
-      GOOGLE_CUSTOM_SEARCH_ENGINE_ID: ${GOOGLE_CUSTOM_SEARCH_ENGINE_ID}
-      SERPER_API_KEY: ${SERPER_API_KEY}
-      NETWORK_EXPORT_DIR: /app/data/networks
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment: *app_env
     volumes:
-      - ./backend:/app/backend
-      - app_data:/app/data  # Share application data volume
-    command: celery -A backend.tasks worker --loglevel=info
+      # The whole tree, not just backend/: the worker imports scripts and needs
+      # PYTHONPATH=/app to resolve the backend package.
+      - .:/app
+      - app_data:/app/data
+    # One worker across every routed queue. Tasks whose queue has no consumer sit
+    # in Redis forever, so this list must cover celery_app.conf.task_routes.
+    command: >
+      celery -A backend.celery_app:celery_app worker
+      --loglevel=info
+      -Q celery,scraping,analysis,networks,search
+    restart: unless-stopped
 
   celery_beat:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    build: *app_build
+    image: issue_observatory:latest
     container_name: issue_observatory_celery_beat
     depends_on:
-      - postgres
+      - backend
       - redis
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-issue_observatory}
-      REDIS_URL: redis://redis:6379
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+    env_file:
+      - .env
+    environment: *app_env
     volumes:
-      - ./backend:/app/backend
-    command: celery -A backend.tasks beat --loglevel=info
+      - .:/app
+      - app_data:/app/data
+    command: >
+      celery -A backend.celery_app:celery_app beat
+      --loglevel=info
+      -s /tmp/celerybeat-schedule
+    restart: unless-stopped
 
   flower:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    build: *app_build
+    image: issue_observatory:latest
     container_name: issue_observatory_flower
     depends_on:
       - redis
-    environment:
-      REDIS_URL: redis://redis:6379
+      - celery_worker
+    env_file:
+      - .env
+    environment: *app_env
     ports:
-      - "5555:5555"
-    command: celery -A backend.tasks flower --port=5555
+      - "${FLOWER_PORT_HOST:-5555}:5555"
+    volumes:
+      - .:/app
+    command: celery -A backend.celery_app:celery_app flower --port=5555
+    restart: unless-stopped
 
-  # Optional: pgAdmin for database management
+  # Reverse proxy. Opt in with:  docker compose --profile proxy up -d
+  # nginx/nginx.conf still carries Let's Encrypt paths for "your-domain" and will
+  # not start until real certificates exist, so it stays out of the default set.
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: issue_observatory_nginx
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/static:/var/www/static:ro
+    profiles:
+      - proxy
+    restart: unless-stopped
+
+  # Database UI. Opt in with:  docker compose --profile tools up -d
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: issue_observatory_pgadmin
@@ -125,37 +171,21 @@ services:
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
-      - "5050:80"
+      - "127.0.0.1:5050:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     profiles:
       - tools
 
-  # Optional: Nginx for production-like setup
-  nginx:
-    image: nginx:alpine
-    container_name: issue_observatory_nginx
-    depends_on:
-      - backend
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./docker/nginx/sites-enabled:/etc/nginx/sites-enabled:ro
-      - ./frontend/static:/var/www/static:ro
-    profiles:
-      - production
-
 volumes:
   postgres_data:
-    driver: local
+    name: ${POSTGRES_VOLUME_NAME:-issue_observatory_postgres_data}
   redis_data:
-    driver: local
+    name: ${REDIS_VOLUME_NAME:-issue_observatory_redis_data}
   app_data:
-    driver: local
+    name: ${APP_VOLUME_NAME:-issue_observatory_app_data}
   pgadmin_data:
-    driver: local
+    name: issue_observatory_pgadmin_data
 
 networks:
   default:

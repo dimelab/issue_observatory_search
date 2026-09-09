@@ -11,7 +11,7 @@ chmod +x start_workers.sh stop_workers.sh
 ./start_workers.sh
 
 # Check status
-python check_celery_tasks.py
+python scripts/check_celery_tasks.py
 
 # Stop all workers
 ./stop_workers.sh
@@ -60,7 +60,7 @@ celery -A backend.celery_app inspect registered
 celery -A backend.celery_app inspect stats
 
 # Or use the diagnostic script
-python check_celery_tasks.py
+python scripts/check_celery_tasks.py
 ```
 
 ### View Logs
@@ -97,7 +97,7 @@ pkill -f "celery.*worker"
 
 2. **Verify worker is on correct queue:**
    ```bash
-   python check_celery_tasks.py
+   python scripts/check_celery_tasks.py
    # Check "REGISTERED TASKS" section
    ```
 
@@ -121,7 +121,7 @@ pkill -f "celery.*worker"
 ./start_workers.sh
 
 # Verify networks worker is registered
-python check_celery_tasks.py
+python scripts/check_celery_tasks.py
 # Should see "tasks.generate_network" in REGISTERED TASKS
 ```
 

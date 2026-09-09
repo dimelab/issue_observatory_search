@@ -25,8 +25,9 @@ WORKDIR /app
 # Stage 2: Development image
 FROM base as development
 
-# Copy dependency files
-COPY setup.py setup.cfg ./
+# Copy dependency files. requirements.txt is required here: setup.py reads
+# install_requires from it and silently installs nothing if it is missing.
+COPY setup.py setup.cfg requirements.txt ./
 COPY README.md ./
 
 # Copy backend package
@@ -34,6 +35,13 @@ COPY backend ./backend
 
 # Install dependencies in editable mode
 RUN pip install -e ".[dev]"
+
+# Download spaCy models required for content analysis
+RUN python -m spacy download en_core_web_sm && \
+    python -m spacy download da_core_news_sm
+
+# Install the Chromium build the scraper drives, plus its system libraries
+RUN playwright install --with-deps chromium
 
 # Copy application code
 COPY . .
@@ -47,12 +55,17 @@ CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--re
 # Stage 3: Production image
 FROM base as production
 
-# Copy dependency files
-COPY setup.py setup.cfg ./
+# Copy dependency files. requirements.txt is required here: setup.py reads
+# install_requires from it and silently installs nothing if it is missing.
+COPY setup.py setup.cfg requirements.txt ./
 COPY README.md ./
 
 # Install production dependencies
 RUN pip install .
+
+# Download spaCy models required for content analysis
+RUN python -m spacy download en_core_web_sm && \
+    python -m spacy download da_core_news_sm
 
 # Copy application code
 COPY backend ./backend

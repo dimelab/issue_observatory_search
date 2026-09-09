@@ -1,4 +1,11 @@
 """Script to check Celery task status."""
+# Add the project root to sys.path so "backend" resolves when this file is run
+# as "python scripts/<name>.py" (sys.path[0] is the script's own directory).
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from backend.celery_app import celery_app
 from celery.result import AsyncResult
 

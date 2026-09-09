@@ -2,9 +2,7 @@
 
 En trin-for-trin guide til at lave en komplet søgning, scraping og netværksanalyse.
 
-Kan tilgås på http://212.27.13.34:3111
-
-!Din browser vil muligvis advare dig mod at gå videre til websted. Dette skal du ignorere og bare gå videre. Nogle gange skal man klikke på "Advanced" for at kunne vælge at gå videre.
+Kan tilgås på https://issueobservatory.dk/
 
 Brugernavn og password skal du have fået. Ellers skriv til jakobbk@ruc.dk
 

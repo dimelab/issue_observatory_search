@@ -1,4 +1,11 @@
 """Script to check Celery task status in Redis."""
+# Add the project root to sys.path so "backend" resolves when this file is run
+# as "python scripts/<name>.py" (sys.path[0] is the script's own directory).
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import sys
 from celery.result import AsyncResult
 from backend.celery_app import celery_app
@@ -64,9 +71,9 @@ def check_task(task_id):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python check_task_status.py <task_id>")
+        print("Usage: python scripts/check_task_status.py <task_id>")
         print("\nExample:")
-        print("  python check_task_status.py 9f98ac9a-0d03-42ac-9262-17cb4ecc4724")
+        print("  python scripts/check_task_status.py 9f98ac9a-0d03-42ac-9262-17cb4ecc4724")
         sys.exit(1)
 
     task_id = sys.argv[1]
