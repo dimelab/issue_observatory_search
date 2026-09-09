@@ -32,8 +32,12 @@ RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install -r requirements.txt
 
 # Download spaCy models
-RUN /opt/venv/bin/python -m spacy download en_core_web_sm && \
-    /opt/venv/bin/python -m spacy download da_core_news_sm
+# Pinned wheels rather than "spacy download": that command resolves the model
+# version from a compatibility file fetched at build time, and silently builds a
+# versionless 404 URL when the fetch fails.
+RUN /opt/venv/bin/pip install --no-cache-dir \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/da_core_news_sm-3.7.0/da_core_news_sm-3.7.0-py3-none-any.whl
 
 # Copy application code
 COPY . .

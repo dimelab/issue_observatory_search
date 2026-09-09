@@ -404,6 +404,9 @@ debug.log
 
 # Force include important files
 !.env.example
+# Database bootstrap, mounted by the postgres service (the blanket *.sql rule
+# above is for dumps and backups, not this).
+!docker/init.sql
 !.gitkeep
 !README.md
 !requirements.txt

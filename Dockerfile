@@ -36,9 +36,14 @@ COPY backend ./backend
 # Install dependencies in editable mode
 RUN pip install -e ".[dev]"
 
-# Download spaCy models required for content analysis
-RUN python -m spacy download en_core_web_sm && \
-    python -m spacy download da_core_news_sm
+# spaCy models required for content analysis, pinned to the versions the
+# compatibility table lists for spacy 3.7. Installed by direct wheel URL rather
+# than "spacy download": that command resolves the version from a compatibility
+# file it fetches at build time, and when that fetch fails it silently builds a
+# versionless URL and dies on a 404.
+RUN pip install --no-cache-dir \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/da_core_news_sm-3.7.0/da_core_news_sm-3.7.0-py3-none-any.whl
 
 # Install the Chromium build the scraper drives, plus its system libraries
 RUN playwright install --with-deps chromium
@@ -63,9 +68,14 @@ COPY README.md ./
 # Install production dependencies
 RUN pip install .
 
-# Download spaCy models required for content analysis
-RUN python -m spacy download en_core_web_sm && \
-    python -m spacy download da_core_news_sm
+# spaCy models required for content analysis, pinned to the versions the
+# compatibility table lists for spacy 3.7. Installed by direct wheel URL rather
+# than "spacy download": that command resolves the version from a compatibility
+# file it fetches at build time, and when that fetch fails it silently builds a
+# versionless URL and dies on a 404.
+RUN pip install --no-cache-dir \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/da_core_news_sm-3.7.0/da_core_news_sm-3.7.0-py3-none-any.whl
 
 # Copy application code
 COPY backend ./backend
