@@ -9,11 +9,18 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# System dependencies. The lib* block is Chromium's runtime set, installed by
+# hand because "playwright install --with-deps" (1.41) asks apt for ttf-unifont
+# and ttf-ubuntu-font-family, which no longer exist on Debian 12 (bookworm), so
+# it aborts before downloading the browser.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     libpq-dev \
+    libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+    libdrm2 libxcb1 libxkbcommon0 libx11-6 libxcomposite1 libxdamage1 \
+    libxext6 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
+    libasound2 libatspi2.0-0 libglib2.0-0 libexpat1 fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip
@@ -45,8 +52,8 @@ RUN pip install --no-cache-dir \
     https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl \
     https://github.com/explosion/spacy-models/releases/download/da_core_news_sm-3.7.0/da_core_news_sm-3.7.0-py3-none-any.whl
 
-# Install the Chromium build the scraper drives, plus its system libraries
-RUN playwright install --with-deps chromium
+# Browser only; its shared libraries came from apt in the base stage.
+RUN playwright install chromium
 
 # Copy application code
 COPY . .
