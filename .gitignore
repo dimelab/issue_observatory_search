@@ -407,6 +407,9 @@ debug.log
 # Database bootstrap, mounted by the postgres service (the blanket *.sql rule
 # above is for dumps and backups, not this).
 !docker/init.sql
+# Application package, not a build cache. The generic "cache/" rule above
+# otherwise excludes it and it never reaches a clone.
+!backend/core/cache/
 !.gitkeep
 !README.md
 !requirements.txt

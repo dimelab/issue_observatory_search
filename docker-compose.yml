@@ -78,8 +78,7 @@ services:
       sh -c "
         mkdir -p /app/data/networks /app/data/exports &&
         alembic upgrade head &&
-        uvicorn backend.main:app --host 0.0.0.0 --port 8000
-        --proxy-headers --forwarded-allow-ips='*'
+        uvicorn backend.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
       "
     restart: unless-stopped
 
