@@ -6,6 +6,17 @@
 // Check authentication on page load
 document.addEventListener('DOMContentLoaded', function() {
     const currentPage = window.location.pathname;
+
+    // Auth state lives in two places: the access_token cookie the server reads,
+    // and localStorage, which this file uses for Bearer headers. The server
+    // clears the cookie and redirects here with ?session=expired; localStorage
+    // must be cleared too, or the "already authenticated" redirect below sends
+    // us back to a page the server rejects, and the two bounce forever.
+    if (new URLSearchParams(window.location.search).get('session') === 'expired') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+    }
+
     const token = localStorage.getItem('token');
     const username = localStorage.getItem('username');
 
