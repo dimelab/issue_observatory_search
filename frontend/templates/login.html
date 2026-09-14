@@ -118,6 +118,15 @@
 
 {% block extra_scripts %}
 <script>
+// The 401 handler redirects expired page sessions here with ?session=expired,
+// so say why rather than presenting a bare login form to someone who believed
+// they were signed in.
+if (new URLSearchParams(window.location.search).get('session') === 'expired') {
+    document.getElementById('error-text').textContent =
+        'Your session has expired. Please sign in again.';
+    document.getElementById('error-message').classList.remove('hidden');
+}
+
 document.getElementById('login-form').addEventListener('submit', async function(e) {
     e.preventDefault();
 

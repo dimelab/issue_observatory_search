@@ -7,7 +7,7 @@ import logging
 import traceback
 from typing import Union
 from fastapi import Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -71,10 +71,71 @@ async def issue_observatory_exception_handler(
     )
 
 
+
+def _is_page_request(request: Request) -> bool:
+    """
+    Whether the request is a browser navigating to a server-rendered page.
+
+    API clients must keep receiving JSON, so anything under the API prefix is
+    excluded regardless of what it sends in Accept.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        True if the caller expects an HTML document
+    """
+    if request.url.path.startswith(settings.api_v1_prefix):
+        return False
+    return "text/html" in request.headers.get("accept", "")
+
+
+def _expired_session_response(request: Request) -> Response | None:
+    """
+    Build the response for an unauthenticated page request, if that is what this
+    is.
+
+    A page request with a missing or stale token is a login problem, not an
+    error document. Returning JSON there shows the raw error payload to the
+    user, which happens to every session once ACCESS_TOKEN_EXPIRE_MINUTES
+    elapses, and to everyone at once whenever SECRET_KEY is rotated. The dead
+    cookie is cleared so the browser stops replaying it.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        A redirect for page requests, or None to fall through to JSON
+    """
+    # The login page is public; redirecting to it from itself would loop.
+    if request.url.path == "/":
+        return None
+
+    target = "/?session=expired"
+
+    # HTMX swaps a fragment into the current page, so it needs an explicit
+    # client-side redirect instruction rather than a 3xx it would follow.
+    if request.headers.get("HX-Request") == "true" and not request.url.path.startswith(
+        settings.api_v1_prefix
+    ):
+        response: Response = Response(
+            status_code=status.HTTP_200_OK, headers={"HX-Redirect": target}
+        )
+    elif _is_page_request(request):
+        response = RedirectResponse(
+            url=target, status_code=status.HTTP_303_SEE_OTHER
+        )
+    else:
+        return None
+
+    response.delete_cookie("access_token")
+    return response
+
+
 async def http_exception_handler(
     request: Request,
     exc: StarletteHTTPException,
-) -> JSONResponse:
+) -> Response:
     """
     Handle HTTP exceptions from Starlette/FastAPI.
 
@@ -97,6 +158,11 @@ async def http_exception_handler(
                 "client": request.client.host if request.client else None,
             },
         )
+
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        redirect = _expired_session_response(request)
+        if redirect is not None:
+            return redirect
 
     error_response = {
         "error": {
