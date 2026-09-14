@@ -111,6 +111,13 @@ def _expired_session_response(request: Request) -> Response | None:
     if request.url.path == "/":
         return None
 
+    # Circuit breaker. If the referrer is the login page we just sent them to,
+    # the client bounced straight back with another 401 - stale cached JS
+    # redirecting on a localStorage token, for instance. Redirecting again would
+    # spin forever, so fail terminally instead.
+    if "session=expired" in request.headers.get("referer", ""):
+        return None
+
     target = "/?session=expired"
 
     # HTMX swaps a fragment into the current page, so it needs an explicit
