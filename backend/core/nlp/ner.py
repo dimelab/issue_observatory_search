@@ -72,6 +72,11 @@ class NamedEntityExtractor:
         California (GPE)
     """
 
+    # Models trained on CoNLL data - da_core_news_sm among them - emit PER
+    # where the OntoNotes-based English models, this schema and the UI all use
+    # PERSON. Normalising at extraction keeps one vocabulary in the database.
+    LABEL_ALIASES = {"PER": "PERSON"}
+
     # Entity types to extract by default
     DEFAULT_ENTITY_TYPES = [
         "PERSON",
@@ -143,8 +148,12 @@ class NamedEntityExtractor:
         seen_entities = set()  # For deduplication
 
         for ent in doc.ents:
+            # Normalise before filtering, or Danish entities are dropped here
+            # and again by the entity_types filter in the analysis service.
+            label = self.LABEL_ALIASES.get(ent.label_, ent.label_)
+
             # Filter by entity type
-            if ent.label_ not in entity_types:
+            if label not in entity_types:
                 continue
 
             # Skip very short entities (likely noise)
@@ -154,7 +163,7 @@ class NamedEntityExtractor:
             # Create entity object
             entity = ExtractedEntity(
                 text=ent.text.strip(),
-                label=ent.label_,
+                label=label,
                 start=ent.start_char,
                 end=ent.end_char,
                 confidence=None,  # spaCy doesn't provide confidence by default

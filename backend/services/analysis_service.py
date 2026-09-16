@@ -726,8 +726,13 @@ class AnalysisService:
                 if config.entity_types and entity.label not in config.entity_types:
                     continue
 
-                # Filter by confidence
-                if entity.confidence < config.confidence_threshold:
+                # Filter by confidence. spaCy reports no confidence at all, so
+                # coalesce first: comparing None to a float raises TypeError,
+                # which the caller swallows, silently discarding every entity.
+                confidence = (
+                    entity.confidence if entity.confidence is not None else 1.0
+                )
+                if confidence < config.confidence_threshold:
                     continue
 
                 entities.append({
@@ -736,7 +741,7 @@ class AnalysisService:
                     "label": entity.label,
                     "start_pos": entity.start if entity.start is not None else 0,
                     "end_pos": entity.end if entity.end is not None else 0,
-                    "confidence": entity.confidence if entity.confidence is not None else 1.0,
+                    "confidence": confidence,
                     "extraction_method": config.extraction_method,
                     "frequency": 1,  # Will be aggregated later
                     "language": content.language or "en",
