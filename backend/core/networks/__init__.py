@@ -21,6 +21,7 @@ from backend.core.networks.graph_utils import (
     filter_graph_by_weight,
     get_top_nodes_by_degree,
 )
+from backend.core.networks.metrics import annotate_network
 from backend.core.networks.backboning import (
     apply_disparity_filter,
     apply_threshold_filter,
@@ -51,6 +52,8 @@ __all__ = [
     "calculate_centrality_measures",
     "filter_graph_by_weight",
     "get_top_nodes_by_degree",
+    # Node metrics (communities, centrality)
+    "annotate_network",
     # Backboning
     "apply_disparity_filter",
     "apply_threshold_filter",
