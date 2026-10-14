@@ -195,9 +195,7 @@
                 this.loading = true;
                 try {
                     const response = await fetch('/api/networks', {
-                        headers: {
-                            'Authorization': 'Bearer ' + localStorage.getItem('token')
-                        }
+                        headers: authHeaders()
                     });
 
                     if (response.ok) {
@@ -229,9 +227,7 @@
 
                 try {
                     const response = await fetch(url, {
-                        headers: {
-                            'Authorization': 'Bearer ' + localStorage.getItem('token')
-                        }
+                        headers: authHeaders()
                     });
 
                     if (response.ok) {
@@ -261,9 +257,7 @@
                 try {
                     const response = await fetch(`/api/networks/${networkId}`, {
                         method: 'DELETE',
-                        headers: {
-                            'Authorization': 'Bearer ' + localStorage.getItem('token')
-                        }
+                        headers: authHeaders()
                     });
 
                     if (response.ok) {
