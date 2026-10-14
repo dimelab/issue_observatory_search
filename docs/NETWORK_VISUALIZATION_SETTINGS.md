@@ -1,469 +1,142 @@
-# Network Visualization Settings - Implementation Summary
+# Network Viewer Reference
 
-**Date**: December 10, 2025
-**Status**: ✅ COMPLETED
+**Last updated**: October 14, 2026
+**Code**: `frontend/static/js/network-viz-graphology.js` (class `GraphologyNetworkVisualizer`) and
+`frontend/templates/networks/visualize.html` (Alpine component `networkViewer`)
 **Based on**: some2net visualization patterns (https://github.com/dimelab/some2net)
 
----
+The viewer loads a network's GEXF file from `/api/networks/{id}/download`, builds a
+Graphology graph once, and renders it with Sigma.js 2.4.0 (WebGL). Layout is
+ForceAtlas2 from `graphology-library` 0.8.0. All libraries load from CDN in `base.html`;
+there is no build step.
 
-## Overview
-
-Added two new user-adjustable settings to the network visualization interface:
-
-1. **Node Size Control** - Adjust the size of all nodes (0.1x to 3.0x multiplier)
-2. **Giant Component Filter** - Show only the largest connected component
-
-Both features are inspired by and follow the implementation patterns from the some2net project.
+This file replaces the earlier implementation summary, which covered only the node-size
+slider and the giant-component filter. For the history of the move from Vis.js see
+[GRAPHOLOGY_MIGRATION.md](GRAPHOLOGY_MIGRATION.md).
 
 ---
 
-## Implementation Details
+## What the viewer needs from the GEXF
 
-### 1. Node Size Control
+The viewer reads the GEXF `<attributes>` table, so node attributes are keyed by their
+title (`node_type`, not the numeric id networkx writes) and cast by declared type.
 
-**Location**: ForceAtlas2 Settings Panel (expandable)
+| Node attribute | Used for | If missing |
+|----------------|----------|------------|
+| `node_type` | Colour (Type mode), type filter, selected-node panel | Node is type `default` |
+| `eigenvector` | Node size (undirected networks) | Falls back to degree |
+| `pagerank` | Node size (directed networks), takes priority over `eigenvector` | Falls back to `eigenvector`, then degree |
+| `component` | Per-component scaling of `eigenvector` sizes | Graph is treated as one component |
+| `community` | Community colour mode | Community option is disabled |
+| `weight` (node) | Selected-node panel only | Not shown |
 
-**Features**:
-- Range slider: 0.1 to 3.0 (step 0.1)
-- Default: 1.0x
-- Live display of current multiplier value
-- Real-time updates without layout restart
+`community`, `component`, `eigenvector` and `pagerank` are added by the backend when a
+network is generated; see "Node Metrics" in
+[NETWORK_GENERATION_GUIDE.md](NETWORK_GENERATION_GUIDE.md). Networks generated before that
+was added need `python scripts/annotate_networks.py`; until then they show degree-based
+sizes and Type colours only.
 
-**Implementation** (`frontend/static/js/network-viz-graphology.js`):
-
-```javascript
-// State
-this.nodeSizeMultiplier = 1.0;
-
-// Method to update node sizes
-setNodeSizeMultiplier(multiplier) {
-    this.nodeSizeMultiplier = Math.max(0.1, Math.min(3.0, multiplier));
-
-    // Update all node sizes
-    this.graph.forEachNode((node, attributes) => {
-        const baseSize = attributes.baseSize || 10;
-        this.graph.setNodeAttribute(node, 'size', baseSize * this.nodeSizeMultiplier);
-    });
-
-    this.renderer.refresh();
-}
-```
-
-**UI** (`frontend/templates/networks/visualize.html`):
-
-```html
-<div>
-    <div class="flex justify-between items-center mb-1">
-        <label class="text-sm font-medium text-gray-700">Node Size</label>
-        <span class="text-sm text-gray-600" x-text="nodeSizeMultiplier.toFixed(1)"></span>
-    </div>
-    <input type="range"
-           x-model.number="nodeSizeMultiplier"
-           @input="updateNodeSize()"
-           min="0.1" max="3.0" step="0.1"
-           class="w-full">
-    <div class="text-xs text-gray-500 mt-1">Adjust the size of all nodes</div>
-</div>
-```
+A GEXF attribute whose name collides with a field the renderer owns (`x`, `y`, `size`,
+`color`, `label`, `type`, `hidden`, `node_type`, ...) is stored as `attr_<name>` so it can
+never override rendering. Nodes without a `viz:position` are placed on a circle; nothing
+is laid out until the user presses Start Layout.
 
 ---
 
-### 2. Giant Component Filter
+## Controls
 
-**Location**: Filters sidebar (prominent position at top)
+### Node size
 
-**Features**:
-- Checkbox toggle: On/Off
-- Displays percentage of network in giant component (console log)
-- Works in combination with other filters
-- Clear visual indication with 🔍 emoji
+Size comes from a centrality score, chosen once per file: `pagerank` if any node has it,
+else `eigenvector`, else full-graph degree. The panel under the Node Size slider says which
+one is in use.
 
-**Implementation** (`frontend/static/js/network-viz-graphology.js`):
+- **Eigenvector is scaled per component.** The backend stores eigenvector values
+  normalised within each connected component, so a 2-node component scores 0.707 per node,
+  more than the giant component's hub. The viewer multiplies each score by
+  `sqrt(n_component / N)`, which gives each component a share of squared mass proportional
+  to its node count. PageRank and degree are already comparable across the graph and get no
+  scaling.
+- Scores map to a base size of 5-30 px on a square-root scale (`NODE_SIZE_MIN` and
+  `NODE_SIZE_MAX` at the top of the JS file).
+- The **Node Size** slider (ForceAtlas2 settings panel) is a global multiplier, 0.1x-3.0x,
+  default 0.5x. At the default, a typical node is about 4 px and the largest hub about
+  15 px on the 835-node test network.
+- Sizes are computed over all nodes at load, so filters never change them.
 
-```javascript
-// Connected components extraction using BFS
-getConnectedComponents(nodes, edges) {
-    const nodeIds = new Set(nodes.map(n => n.id));
-    const adjacencyList = new Map();
+### Colour
 
-    // Build adjacency list
-    nodeIds.forEach(id => adjacencyList.set(id, []));
-    edges.forEach(({ source, target }) => {
-        if (nodeIds.has(source) && nodeIds.has(target)) {
-            adjacencyList.get(source).push(target);
-            adjacencyList.get(target).push(source);
-        }
-    });
+A **Colour by** switch in the sidebar:
 
-    const visited = new Set();
-    const components = [];
+- **Type** (default): one colour per `node_type`. In a bipartite network that is the two
+  sides. Known types have fixed colours (`website` green, `keyword`/`noun` amber, `query`/
+  `search` blue, `entity` purple, `topic`/`concept` pink); unknown types get a stable
+  colour hashed from the type name.
+- **Community**: the 10 largest communities (rank 0-9, numbered by the backend, 0 =
+  largest) get the palette in `COMMUNITY_PALETTE`; every other community is gray
+  (`#CBD5E1`). Disabled when the file has no `community` attribute.
 
-    // BFS to find components
-    for (const startNode of nodeIds) {
-        if (visited.has(startNode)) continue;
+### Labels
 
-        const component = [];
-        const queue = [startNode];
-        visited.add(startNode);
+The **Labels** toolbar button turns node labels on or off (default on). Sigma still decides
+which labels fit at the current zoom, so a dense network shows few labels until zoomed in.
 
-        while (queue.length > 0) {
-            const node = queue.shift();
-            component.push(node);
+### Filters
 
-            const neighbors = adjacencyList.get(node) || [];
-            for (const neighbor of neighbors) {
-                if (!visited.has(neighbor)) {
-                    visited.add(neighbor);
-                    queue.push(neighbor);
-                }
-            }
-        }
+Applied in this order, through Sigma reducers (the graph is not rebuilt, so layout
+positions survive):
 
-        components.push(component);
-    }
+1. **Type** checkboxes (built from the types in the file) and **Search** (case-insensitive
+   substring of the label).
+2. **Giant Component Only**: the largest connected component among the nodes that passed
+   step 1.
+3. **Min. Degree** (0-20): keeps nodes with at least that many neighbours among the nodes
+   that passed steps 1-2. One pass, not repeated until stable.
 
-    // Sort by size (largest first)
-    components.sort((a, b) => b.length - a.length);
-    return components;
-}
+**Clear All Filters** resets all four. The statistics panel (nodes, edges, density, average
+degree) describes the visible subgraph.
 
-// Apply giant component filter
-setGiantComponentFilter(enabled) {
-    this.filters.giantComponentOnly = enabled;
-    this.applyFilters();
-}
-```
+### Layout
 
-**Integration in `applyFilters()` method**:
+**Start Layout** / **Stop Layout** run ForceAtlas2, one synchronous iteration per animation
+frame on the main thread, on the full graph (including nodes hidden by filters). The
+settings panel (gear icon) sets gravity (0-5), scaling (1-50), edge weight influence (0-2)
+and Barnes-Hut; changes apply on the next frame without restarting. Large networks will
+make the page less responsive while the layout runs.
 
-```javascript
-// Apply giant component filter
-if (this.filters.giantComponentOnly) {
-    const components = this.getConnectedComponents(filteredNodes, filteredEdges);
+### Selection and navigation
 
-    if (components.length > 0) {
-        const giantComponent = new Set(components[0]);
-        const componentSize = giantComponent.size;
-        const totalSize = filteredNodes.length;
+Click a node to see its type, degree (among visible nodes) and, when present, weight,
+community, eigenvector and PageRank. Double-click a node to zoom to it. Keys **+** / **=**,
+**-** and **0** zoom in, zoom out and fit the view.
 
-        console.log(`Giant component: ${componentSize} nodes (${(componentSize/totalSize*100).toFixed(1)}% of network)`);
+### Export
 
-        // Filter to only giant component nodes
-        filteredNodes = filteredNodes.filter(node => giantComponent.has(node.id));
-        nodeIds = giantComponent;
+The **Export** menu offers:
 
-        // Filter edges again
-        filteredEdges = filteredEdges.filter(edge =>
-            giantComponent.has(edge.source) && giantComponent.has(edge.target)
-        );
-    }
-}
-```
-
-**UI** (`frontend/templates/networks/visualize.html`):
-
-```html
-<div class="mb-4 pb-4 border-b border-gray-200">
-    <label class="flex items-center cursor-pointer">
-        <input type="checkbox"
-               x-model="giantComponentOnly"
-               @change="toggleGiantComponent()"
-               id="giantComponent"
-               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-        <span class="ml-2 text-sm text-gray-700">
-            🔍 Giant Component Only
-        </span>
-    </label>
-    <p class="mt-1 ml-6 text-xs text-gray-500">Show only the largest connected component</p>
-</div>
-```
+- **PNG image**: composites Sigma's `edges`, `edgeLabels`, `nodes` and `labels` canvases
+  onto a white background at the backing-store resolution. It shows exactly what is on
+  screen: current filters, colour mode and label setting. Sigma 2.4.0 does not keep the
+  nodes layer's pixels after rendering, so export re-renders and copies every layer in the
+  same task.
+- **GEXF (Gephi)**, **GraphML**, **Edge list (CSV)**, **JSON**: plain links to
+  `/api/networks/{id}/download?format=...`. These are the stored network, not the filtered
+  view. GEXF, GraphML and JSON include the node metrics; the CSV edge list has edges only.
 
 ---
 
-## Files Modified
-
-### 1. `frontend/static/js/network-viz-graphology.js`
-
-**Changes**:
-- Added `nodeSizeMultiplier` state variable (default: 1.0)
-- Added `giantComponentOnly` filter state
-- Modified node creation to store `baseSize` attribute
-- Added `setNodeSizeMultiplier(multiplier)` method
-- Added `setGiantComponentFilter(enabled)` method
-- Added `getConnectedComponents(nodes, edges)` helper method
-- Updated `applyFilters()` to apply giant component logic
-- Updated node size calculations to use multiplier
-
-**Lines Modified**: ~150 lines added/modified
-
----
-
-### 2. `frontend/templates/networks/visualize.html`
-
-**Changes**:
-- Added Node Size slider in ForceAtlas2 Settings panel
-- Added Giant Component checkbox in Filters sidebar
-- Added `nodeSizeMultiplier` state variable (default: 1.0)
-- Added `giantComponentOnly` state variable (default: false)
-- Added `updateNodeSize()` method
-- Added `toggleGiantComponent()` method
-- Updated `clearFilters()` to reset giant component filter
-
-**Lines Modified**: ~60 lines added/modified
-
----
-
-## User Interface Location
-
-### Node Size Control
-- **Panel**: ForceAtlas2 Settings (collapsible)
-- **Access**: Click gear icon (⚙️) in toolbar
-- **Position**: Between "Edge Weight" and "Barnes-Hut Optimization"
-- **Controls**: Range slider with live value display
-
-### Giant Component Filter
-- **Panel**: Filters sidebar (always visible)
-- **Position**: Top of filters section (above node type filters)
-- **Controls**: Checkbox with explanatory text
-- **Visual**: 🔍 emoji for quick recognition
-
----
-
-## Usage Examples
-
-### Example 1: Adjusting Node Sizes
-
-```javascript
-// User slides Node Size control to 1.5x
-// All nodes become 1.5x their base size
-// Useful for large networks where nodes are too small
-```
-
-### Example 2: Isolating Giant Component
-
-```javascript
-// Network has 1000 nodes, 3 components: 850, 100, 50 nodes
-// User checks "Giant Component Only"
-// Console: "Giant component: 850 nodes (85.0% of network)"
-// Display shows only 850-node component
-```
-
-### Example 3: Combined with Other Filters
-
-```javascript
-// 1. Filter to show only "Website" and "Noun" nodes
-// 2. Enable "Giant Component Only"
-// Result: Shows giant component of filtered subgraph
-```
-
----
-
-## Design Decisions
-
-### Why These Features?
-
-1. **Node Size Control**
-   - Essential for networks with varying sizes
-   - Users need control over visual density
-   - some2net includes this as core feature
-   - Range 0.1-3.0 matches some2net implementation
-
-2. **Giant Component Filter**
-   - Networks often have disconnected components
-   - Giant component usually contains main structure
-   - Common analysis technique in network science
-   - some2net prominently features this filter
-
-### Algorithm Choice: BFS for Components
-
-**Why BFS over DFS?**
-- Breadth-first search is simpler to implement iteratively
-- Avoids stack overflow on large networks
-- Performance is equivalent (O(V + E) for both)
-- More predictable memory usage
-
-**Why client-side implementation?**
-- No server round-trip needed
-- Works with existing filter architecture
-- Consistent with other filters (type, search)
-- some2net demonstrates this is performant
-
----
-
-## Performance Considerations
-
-### Node Size Updates
-- **Operation**: O(V) where V = number of nodes
-- **Trigger**: Manual slider adjustment only
-- **Optimization**: Direct attribute update, no graph rebuild
-- **Result**: Smooth, real-time updates even for 1000+ nodes
-
-### Giant Component Extraction
-- **Algorithm Complexity**: O(V + E)
-  - V = nodes after other filters
-  - E = edges after other filters
-- **Memory**: O(V) for visited set and adjacency list
-- **Typical Performance**:
-  - 100 nodes: < 1ms
-  - 1000 nodes: < 10ms
-  - 5000 nodes: < 50ms
-- **Trigger**: Only on filter toggle, not continuous
-
-### Combined Filters Performance
-- **Order of Operations**:
-  1. Type filters (O(V))
-  2. Search filter (O(V))
-  3. Giant component (O(V + E))
-  4. Graph rebuild (O(V + E))
-- **Total**: O(V + E) - Linear time complexity
-- **Result**: Fast even for large networks
-
----
-
-## Testing Recommendations
-
-### Manual Testing Checklist
-
-**Node Size Control**:
-- [ ] Slider moves smoothly from 0.1 to 3.0
-- [ ] Value display updates in real-time
-- [ ] Nodes resize immediately
-- [ ] Works during active ForceAtlas2 layout
-- [ ] Persists when applying other filters
-- [ ] All nodes scale proportionally
-
-**Giant Component Filter**:
-- [ ] Checkbox toggles on/off
-- [ ] Console shows component statistics
-- [ ] Network updates to show only giant component
-- [ ] Works with disconnected test networks
-- [ ] Combines correctly with type filters
-- [ ] Combines correctly with search filter
-- [ ] "Clear All Filters" resets the checkbox
-
-**Edge Cases**:
-- [ ] Single-component network (should show all nodes)
-- [ ] Fully disconnected network (shows largest component = 1 node)
-- [ ] Toggle giant component multiple times
-- [ ] Adjust node size while giant component active
-- [ ] Apply multiple filters in different orders
-
-### Automated Testing (Future)
-
-```javascript
-// Test giant component extraction
-test('getConnectedComponents finds components', () => {
-    const nodes = [
-        {id: 'a'}, {id: 'b'}, {id: 'c'},
-        {id: 'd'}, {id: 'e'}
-    ];
-    const edges = [
-        {source: 'a', target: 'b'},
-        {source: 'b', target: 'c'},
-        {source: 'd', target: 'e'}
-    ];
-
-    const components = visualizer.getConnectedComponents(nodes, edges);
-    expect(components.length).toBe(2);
-    expect(components[0].length).toBe(3); // Giant: a-b-c
-    expect(components[1].length).toBe(2); // Small: d-e
-});
-
-// Test node size multiplier bounds
-test('setNodeSizeMultiplier enforces bounds', () => {
-    visualizer.setNodeSizeMultiplier(5.0);
-    expect(visualizer.nodeSizeMultiplier).toBe(3.0); // Max
-
-    visualizer.setNodeSizeMultiplier(0.05);
-    expect(visualizer.nodeSizeMultiplier).toBe(0.1); // Min
-});
-```
-
----
-
-## Browser Compatibility
-
-**Tested/Expected to work on**:
-- ✅ Chrome/Edge 90+ (Chromium)
-- ✅ Firefox 88+
-- ✅ Safari 14+
-
-**JavaScript Features Used**:
-- ES6 classes, arrow functions, const/let
-- Map, Set data structures
-- Array methods (filter, map, forEach, sort)
-- Template literals
-
-**No special requirements** - all features are standard ES6+
-
----
-
-## Future Enhancements
-
-### Potential Additions
-
-1. **Component Selection Dropdown**
-   - Show all components, not just giant
-   - Allow user to select which component to view
-   - Display component sizes in dropdown
-
-2. **Node Size by Degree**
-   - Scale nodes by their degree centrality
-   - Logarithmic scaling option
-   - Min/max size constraints
-
-3. **Save/Load Settings**
-   - Persist user preferences in localStorage
-   - Apply same settings to other networks
-   - Export/import configuration
-
-4. **Component Statistics**
-   - Show number of components
-   - Distribution chart
-   - Component composition (node types)
-
-5. **Animation**
-   - Smooth transition when toggling giant component
-   - Fade out disconnected nodes
-   - Highlight component boundaries
-
----
-
-## References
-
-### some2net Implementation
-- **Repository**: https://github.com/dimelab/some2net
-- **Visualizer**: `src/utils/visualizer.py` (backend)
-- **UI Controls**: `src/cli/app.py` (Streamlit interface)
-- **Node Size Formula**: `3 + math.log1p(mention_count) * 1.5`
-  - Note: We use fixed multiplier instead of degree-based sizing
-- **Giant Component**: Streamlit checkbox with `show_giant_component` flag
-
-### Network Science References
-- Giant component is a standard concept in network analysis
-- Typically contains majority of nodes in connected networks
-- Important for understanding network connectivity and structure
-
----
-
-## Conclusion
-
-Successfully implemented two essential network visualization controls based on some2net patterns:
-
-1. ✅ **Node Size Control** - Smooth, real-time adjustments (0.1-3.0x)
-2. ✅ **Giant Component Filter** - Efficient BFS-based component extraction
-
-Both features integrate seamlessly with existing filter system and follow the project's architectural patterns. The implementation is performant, user-friendly, and ready for production use.
-
-**Total Implementation Time**: ~2 hours
-**Code Quality**: Production-ready
-**Documentation**: Complete
-**Testing**: Manual testing recommended before deployment
-
----
-
-**Next Steps**:
-1. Manual testing with real network data
-2. Gather user feedback on usability
-3. Consider adding component selection dropdown
-4. Add to release notes for v6.0.0
+## Limits and known gaps
+
+- **Undirected only.** The graph is created undirected, so a duplicate edge is skipped (with
+  one console warning) and its weight is lost. No network builder produces directed graphs
+  today, so PageRank is computed by the backend only if one ever does.
+- **Metrics do not follow filters.** Communities and centralities are computed once on the
+  whole network at generation time, not recomputed for the filtered subgraph.
+- **No node dragging.**
+- **Keyboard shortcuts.** `+`, `-` and `0` work through a handler in the page. The "Network"
+  group in `keyboard-shortcuts.js` (including the "Toggle physics" entry) refers to
+  `window.currentNetworkVisualizer`, which nothing sets, so those entries do nothing.
+- **Testing.** Verified in headless Chrome with software WebGL against a 14-node and an
+  835-node network, driven by throwaway harnesses (not part of the repository). Not tested:
+  networks over about 1,000 nodes, Firefox, Safari, mobile, or the live page behind login.
+- Sigma is pinned at 2.4.0 and graphology at 0.25.4; moving to Sigma 3 is a separate task.

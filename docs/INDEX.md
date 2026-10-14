@@ -158,6 +158,7 @@ For developers extending the project:
 
 **Generate network visualizations**
 → See [NETWORK_GENERATION_GUIDE.md](NETWORK_GENERATION_GUIDE.md) ⭐
+→ How the in-browser viewer reads and displays a network: [NETWORK_VISUALIZATION_SETTINGS.md](NETWORK_VISUALIZATION_SETTINGS.md)
 
 **Optimize performance**
 → Read [PERFORMANCE.md](PERFORMANCE.md) ⭐
