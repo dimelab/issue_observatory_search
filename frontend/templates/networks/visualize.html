@@ -4,9 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
-<!-- v6.0.0: Graphology visualizer (default), Vis.js kept for backward compatibility -->
-<script src="/static/js/network-viz-graphology.js?v=6.0.0.3"></script>
-<script src="/static/js/network-viz.js"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.5"></script>
 <style>
     #network-container {
         width: 100%;
@@ -78,15 +76,45 @@
                     ⏸️ Stop Layout
                 </button>
 
-                <!-- Export -->
-                <button @click="exportPNG()"
-                        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                        title="Export as PNG">
-                    <svg class="inline-block h-5 w-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg>
-                    Export
+                <!-- Labels on/off -->
+                <button @click="toggleLabels()"
+                        :aria-pressed="labelsVisible.toString()"
+                        :class="labelsVisible ? 'bg-blue-50 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50'"
+                        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium transition-colors"
+                        id="labels-toggle"
+                        title="Show or hide node labels">
+                    🏷️ Labels
                 </button>
+
+                <!-- Export -->
+                <div class="relative" @click.outside="exportOpen = false" @keydown.escape.window="exportOpen = false">
+                    <button @click="exportOpen = !exportOpen"
+                            :aria-expanded="exportOpen.toString()"
+                            aria-haspopup="true"
+                            id="export-toggle"
+                            class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                            title="Export the network">
+                        <svg class="inline-block h-5 w-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        Export
+                    </button>
+                    <div x-show="exportOpen" x-cloak id="export-menu"
+                         class="absolute right-0 z-20 mt-2 w-52 bg-white border border-gray-200 rounded-md shadow-lg py-1">
+                        <button @click="exportPNG(); exportOpen = false"
+                                class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            PNG image
+                        </button>
+                        <a :href="`/api/networks/${networkId}/download?format=gexf`" download @click="exportOpen = false"
+                           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">GEXF (Gephi)</a>
+                        <a :href="`/api/networks/${networkId}/download?format=graphml`" download @click="exportOpen = false"
+                           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">GraphML</a>
+                        <a :href="`/api/networks/${networkId}/download?format=csv`" download @click="exportOpen = false"
+                           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Edge list (CSV)</a>
+                        <a :href="`/api/networks/${networkId}/download?format=json`" download @click="exportOpen = false"
+                           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">JSON</a>
+                    </div>
+                </div>
 
                 <!-- Layout Settings Toggle -->
                 <button @click="showLayoutSettings = !showLayoutSettings"
@@ -155,7 +183,7 @@
                            @input="updateNodeSize()"
                            min="0.1" max="3.0" step="0.1"
                            class="w-full">
-                    <div class="text-xs text-gray-500 mt-1">Adjust the size of all nodes</div>
+                    <div class="text-xs text-gray-500 mt-1" id="size-note" x-text="sizeNote()"></div>
                 </div>
 
                 <!-- Barnes-Hut Optimization -->
@@ -185,6 +213,34 @@
                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
             </div>
 
+            <!-- Colour by -->
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <h3 class="text-sm font-semibold text-gray-900 mb-3">Colour by</h3>
+                <div class="inline-flex w-full rounded-md border border-gray-300 overflow-hidden" role="radiogroup" aria-label="Colour by">
+                    <label class="flex-1 text-center text-sm px-3 py-2 cursor-pointer transition-colors"
+                           :class="colorMode === 'type' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'">
+                        <input type="radio" name="color-mode" value="type" class="sr-only"
+                               x-model="colorMode" @change="applyColorMode()">
+                        Type
+                    </label>
+                    <label class="flex-1 text-center text-sm px-3 py-2 border-l border-gray-300 transition-colors"
+                           :class="[
+                               !hasCommunities ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'cursor-pointer',
+                               colorMode === 'community' ? 'bg-blue-50 text-blue-700 font-medium' : (hasCommunities ? 'text-gray-700 hover:bg-gray-50' : '')
+                           ]">
+                        <input type="radio" name="color-mode" value="community" class="sr-only"
+                               x-model="colorMode" :disabled="!hasCommunities" @change="applyColorMode()">
+                        Community
+                    </label>
+                </div>
+                <p x-show="!hasCommunities" x-cloak id="no-community-note" class="mt-2 text-xs text-gray-500">
+                    No community data — run scripts/annotate_networks.py
+                </p>
+                <p x-show="colorMode === 'community'" x-cloak id="community-note" class="mt-2 text-xs text-gray-500">
+                    Largest 10 communities coloured; others gray.
+                </p>
+            </div>
+
             <!-- Filters -->
             <div class="bg-white rounded-lg shadow-md p-4">
                 <h3 class="text-sm font-semibold text-gray-900 mb-3">Filters</h3>
@@ -194,7 +250,7 @@
                     <label class="flex items-center cursor-pointer">
                         <input type="checkbox"
                                x-model="giantComponentOnly"
-                               @change="console.log('Checkbox changed:', $event.target.checked, 'giantComponentOnly:', giantComponentOnly); toggleGiantComponent()"
+                               @change="toggleGiantComponent()"
                                id="giantComponent"
                                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">
@@ -202,11 +258,6 @@
                         </span>
                     </label>
                     <p class="mt-1 ml-6 text-xs text-gray-500">Show only the largest connected component</p>
-
-                    <!-- Debug: Show current state -->
-                    <p class="mt-1 ml-6 text-xs text-gray-400" x-show="giantComponentOnly">
-                        ✓ Filter is active
-                    </p>
                 </div>
 
                 <!-- Minimum Degree Filter (new in v6.0.0.3) -->
@@ -223,53 +274,24 @@
                     <p class="mt-1 text-xs text-gray-500">Hide nodes with fewer connections</p>
                 </div>
 
-                <!-- Node Type Filters -->
+                <!-- Node Type Filters (built from the types present in the loaded file) -->
                 <div class="space-y-2">
                     <p class="text-xs font-medium text-gray-600 mb-2">Filter by Type</p>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="checkbox"
-                               value="search"
-                               x-model="filterTypes"
-                               @change="applyFilters()"
-                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                        <span class="ml-2 text-sm text-gray-700">
-                            <span class="inline-block w-3 h-3 rounded-full bg-blue-500"></span>
-                            Searches
-                        </span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="checkbox"
-                               value="website"
-                               x-model="filterTypes"
-                               @change="applyFilters()"
-                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                        <span class="ml-2 text-sm text-gray-700">
-                            <span class="inline-block w-3 h-3 rounded-full bg-green-500"></span>
-                            Websites
-                        </span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="checkbox"
-                               value="noun"
-                               x-model="filterTypes"
-                               @change="applyFilters()"
-                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                        <span class="ml-2 text-sm text-gray-700">
-                            <span class="inline-block w-3 h-3 rounded-full bg-amber-500"></span>
-                            Nouns
-                        </span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="checkbox"
-                               value="entity"
-                               x-model="filterTypes"
-                               @change="applyFilters()"
-                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                        <span class="ml-2 text-sm text-gray-700">
-                            <span class="inline-block w-3 h-3 rounded-full bg-purple-500"></span>
-                            Entities
-                        </span>
-                    </label>
+                    <template x-for="t in availableTypes" :key="t.type">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="checkbox"
+                                   :value="t.type"
+                                   x-model="filterTypes"
+                                   @change="applyFilters()"
+                                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                            <span class="ml-2 text-sm text-gray-700">
+                                <span class="inline-block w-3 h-3 rounded-full" :style="`background-color: ${t.color}`"></span>
+                                <span x-text="t.label"></span>
+                                <span class="text-xs text-gray-400" x-text="`(${t.count})`"></span>
+                            </span>
+                        </label>
+                    </template>
+                    <p x-show="availableTypes.length === 0" x-cloak class="text-xs text-gray-500">No node types loaded</p>
                 </div>
                 <button @click="clearFilters()"
                         class="mt-3 w-full px-3 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
@@ -308,13 +330,29 @@
                         <p class="text-xs text-gray-600">Label</p>
                         <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.label"></p>
                     </div>
-                    <div x-show="selectedNode?.type">
+                    <div x-show="selectedNode?.node_type">
                         <p class="text-xs text-gray-600">Type</p>
-                        <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.type"></p>
+                        <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.node_type"></p>
                     </div>
-                    <div x-show="selectedNode?.weight">
+                    <div x-show="selectedNode?.degree != null">
+                        <p class="text-xs text-gray-600">Degree</p>
+                        <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.degree"></p>
+                    </div>
+                    <div x-show="selectedNode?.weight != null">
                         <p class="text-xs text-gray-600">Weight</p>
                         <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.weight"></p>
+                    </div>
+                    <div x-show="selectedNode?.community != null">
+                        <p class="text-xs text-gray-600">Community</p>
+                        <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.community"></p>
+                    </div>
+                    <div x-show="selectedNode?.eigenvector != null">
+                        <p class="text-xs text-gray-600">Eigenvector centrality</p>
+                        <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.eigenvector?.toFixed(4)"></p>
+                    </div>
+                    <div x-show="selectedNode?.pagerank != null">
+                        <p class="text-xs text-gray-600">PageRank</p>
+                        <p class="text-sm font-medium text-gray-900" x-text="selectedNode?.pagerank?.toFixed(4)"></p>
                     </div>
                 </div>
             </div>
@@ -337,12 +375,18 @@
             visualizer: null,
             searchQuery: '',
             filterTypes: [],
+            availableTypes: [],        // [{ type, label, color, count }] from the loaded file
             selectedNode: null,
             showLayoutSettings: false,
             layoutRunning: false,
             giantComponentOnly: false, // v6.0.0: Giant component filter
             minDegree: 0,              // v6.0.0.3: Minimum degree filter
             nodeSizeMultiplier: 0.5,   // v6.0.0: Node size control (default 0.5x for large networks)
+            colorMode: 'type',         // 'type' | 'community'
+            labelsVisible: true,
+            sizeMetric: '',            // 'pagerank' | 'eigenvector' | 'degree', set after load
+            hasCommunities: false,
+            exportOpen: false,
             layoutSettings: {
                 gravity: 1.0,
                 scalingRatio: 10,
@@ -360,7 +404,6 @@
 
             init() {
                 // v6.0.0: Use Graphology visualizer with custom FA2 settings
-                console.log('Using Graphology + Sigma.js visualizer (v6.0.0)');
                 this.visualizer = new GraphologyNetworkVisualizer('network-container', {
                     fa2Settings: this.layoutSettings
                 });
@@ -374,6 +417,12 @@
                     this.selectedNode = null;
                 };
 
+                // Keep the Start/Stop buttons in sync with the layout loop, including
+                // when it stops itself after an error
+                this.visualizer.onLayoutStateChange = (running) => {
+                    this.layoutRunning = running;
+                };
+
                 // Load network data
                 this.loadNetwork();
 
@@ -385,6 +434,11 @@
                 try {
                     const url = `/api/networks/${this.networkId}/download`;
                     await this.visualizer.loadFromGEXF(url);
+                    this.availableTypes = this.visualizer.getNodeTypes();
+                    this.sizeMetric = this.visualizer.getSizeMetric();
+                    this.hasCommunities = this.visualizer.hasCommunities();
+                    this.colorMode = this.visualizer.getColorMode();
+                    this.labelsVisible = this.visualizer.getLabelsVisible();
                     this.updateStats();
                 } catch (error) {
                     console.error('Failed to load network:', error);
@@ -425,17 +479,11 @@
 
             // v6.0.0: Giant component filter
             toggleGiantComponent() {
-                console.log('toggleGiantComponent called, value:', this.giantComponentOnly);
-                console.log('Visualizer exists?', !!this.visualizer);
-                console.log('Method exists?', this.visualizer && typeof this.visualizer.setGiantComponentFilter);
-                console.log('Available methods:', this.visualizer ? Object.getOwnPropertyNames(Object.getPrototypeOf(this.visualizer)) : 'no visualizer');
-
                 if (this.visualizer && typeof this.visualizer.setGiantComponentFilter === 'function') {
                     this.visualizer.setGiantComponentFilter(this.giantComponentOnly);
                     this.updateStats();
                 } else {
                     console.error('Visualizer or setGiantComponentFilter method not available');
-                    console.error('this.visualizer:', this.visualizer);
                 }
             },
 
@@ -446,31 +494,51 @@
                 }
             },
 
+            // One-line description of what drives node size (from the loaded data)
+            sizeNote() {
+                switch (this.sizeMetric) {
+                    case 'pagerank':
+                        return 'Sized by PageRank';
+                    case 'eigenvector':
+                        return 'Sized by eigenvector centrality (scaled per component)';
+                    case 'degree':
+                        return 'Sized by degree (no centrality data in this network)';
+                    default:
+                        return '';
+                }
+            },
+
+            // Colour by type or community; the radio already set colorMode, so revert
+            // if the visualizer refuses (community without community data)
+            applyColorMode() {
+                if (this.visualizer && !this.visualizer.setColorMode(this.colorMode)) {
+                    this.colorMode = 'type';
+                }
+            },
+
+            toggleLabels() {
+                this.labelsVisible = !this.labelsVisible;
+                this.visualizer.setLabelsVisible(this.labelsVisible);
+            },
+
             // Layout control methods
+            // layoutRunning is kept in sync by visualizer.onLayoutStateChange
             startLayout() {
                 if (this.visualizer && typeof this.visualizer.startLayout === 'function') {
                     this.visualizer.startLayout();
-                    // Sync state from visualizer
-                    this.layoutRunning = this.visualizer.layoutIsRunning || false;
                 }
             },
 
             stopLayout() {
                 if (this.visualizer && typeof this.visualizer.stopLayout === 'function') {
                     this.visualizer.stopLayout();
-                    // Sync state from visualizer
-                    this.layoutRunning = this.visualizer.layoutIsRunning || false;
                 }
             },
 
             updateLayoutSettings() {
-                // Update settings and restart layout if running
+                // Settings are read on every layout iteration, so no restart is needed
                 if (this.visualizer && typeof this.visualizer.updateLayoutSettings === 'function') {
                     this.visualizer.updateLayoutSettings(this.layoutSettings);
-                    // If layout was running, restart it
-                    if (this.layoutRunning) {
-                        this.visualizer.startLayout();
-                    }
                 }
             },
 
