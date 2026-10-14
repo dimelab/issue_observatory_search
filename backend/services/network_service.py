@@ -22,6 +22,7 @@ from backend.core.networks.website_concept import WebsiteConceptNetworkBuilder
 from backend.core.networks.graph_utils import calculate_graph_metrics
 from backend.core.networks.backboning import apply_backboning
 from backend.core.networks.exporters import export_to_gexf
+from backend.core.networks.metrics import annotate_network
 from backend.models.network import NetworkExport
 from backend.schemas.network import NetworkBackboningConfig
 from backend.schemas.analysis import KeywordExtractionConfig, NERExtractionConfig
@@ -98,12 +99,18 @@ class NetworkService:
                 graph, backboning_config
             )
 
+        # Add community and centrality attributes (after backboning, so they
+        # describe the network that is exported)
+        analysis_stats = self._annotate_graph(graph)
+
         # Export to GEXF
         file_path = await self._generate_file_path(user_id, name, "gexf")
         export_stats = export_to_gexf(graph, file_path)
 
         # Create database record
         metadata = builder.metadata
+        if analysis_stats:
+            metadata["analysis"] = analysis_stats
         metadata.update({
             "weight_method": weight_method,
             "aggregate_by_domain": aggregate_by_domain,
@@ -206,12 +213,18 @@ class NetworkService:
                 graph, backboning_config
             )
 
+        # Add community and centrality attributes (after backboning, so they
+        # describe the network that is exported)
+        analysis_stats = self._annotate_graph(graph)
+
         # Export to GEXF
         file_path = await self._generate_file_path(user_id, name, "gexf")
         export_stats = export_to_gexf(graph, file_path)
 
         # Create database record
         metadata = builder.metadata
+        if analysis_stats:
+            metadata["analysis"] = analysis_stats
 
         network = await self.repository.create_export(
             user_id=user_id,
@@ -310,12 +323,18 @@ class NetworkService:
                 graph, backboning_config
             )
 
+        # Add community and centrality attributes (after backboning, so they
+        # describe the network that is exported)
+        analysis_stats = self._annotate_graph(graph)
+
         # Export to GEXF
         file_path = await self._generate_file_path(user_id, name, "gexf")
         export_stats = export_to_gexf(graph, file_path)
 
         # Create database record
         metadata = builder.metadata
+        if analysis_stats:
+            metadata["analysis"] = analysis_stats
 
         network = await self.repository.create_export(
             user_id=user_id,
@@ -556,6 +575,26 @@ class NetworkService:
         )
 
         return backboned_graph, stats
+
+    def _annotate_graph(self, graph: nx.Graph) -> Dict[str, Any]:
+        """
+        Add community and centrality node attributes to a graph.
+
+        A failure here must not lose a network that took a scraping run to
+        build, so errors are logged and the graph is exported without the
+        extra attributes (the viewer falls back to node type and degree).
+
+        Args:
+            graph: NetworkX graph, modified in place
+
+        Returns:
+            Analysis summary, or an empty dict if the analysis failed
+        """
+        try:
+            return annotate_network(graph)
+        except Exception:
+            logger.exception("Network analysis failed, exporting without it")
+            return {}
 
     async def _generate_file_path(
         self,

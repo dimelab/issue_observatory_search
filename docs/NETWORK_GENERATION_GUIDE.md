@@ -275,6 +275,50 @@ Delete network
 
 ---
 
+## Node Metrics
+
+Every network is annotated with these node attributes after backboning and
+just before export, so they describe the network you download. Implemented in
+`backend/core/networks/metrics.py`.
+
+| Attribute | Type | Meaning |
+|-----------|------|---------|
+| `community` | int | Louvain community (weighted, seed 42, resolution 1.0). 0 is the largest community. |
+| `component` | int | Connected component. 0 is the largest component. |
+| `eigenvector` | float | Eigenvector centrality of the node within its component. Undirected networks. |
+| `pagerank` | float | PageRank, summing to 1 over the graph. Directed networks only. |
+
+**Eigenvector centrality is computed per connected component.** Computed over
+a whole fragmented graph, almost all of the score lands in the dominant
+component and the rest is near zero. Here each component is scored on its own
+and L2-normalised, so:
+
+- values are comparable *within* a component, not across components. A
+  two-node component scores 0.707 per node, which can exceed the giant
+  component's hub; use `component` when sizing or comparing;
+- isolated nodes score 0.0;
+- if the power iteration does not converge for a component, its nodes get
+  weighted degree scaled to the same norm (counted in
+  `network_metadata.analysis.centrality_fallback_nodes`).
+
+Edge weights are used throughout. A missing or non-numeric weight counts as
+1.0; a zero or negative weight excludes the edge from these calculations only.
+
+The run summary (community count, modularity, size metric, fallbacks) is
+stored in `network_metadata.analysis` and returned by
+`GET /api/networks/{id}`.
+
+**Networks generated before this feature** have none of these attributes
+(the viewer falls back to node type and degree). Add them with:
+
+```bash
+python scripts/annotate_networks.py --dry-run   # preview
+python scripts/annotate_networks.py             # annotate all, rewriting files
+python scripts/annotate_networks.py --id 12     # one network
+```
+
+---
+
 ## Gephi Workflow
 
 ### 1. Generate & Download
@@ -314,14 +358,15 @@ curl http://localhost:8000/api/networks/42/download \
 - **OpenOrd:** Best for large networks (>5000 nodes)
 
 ### 4. Style Nodes
-**Colors** (pre-configured):
-- Queries: Blue
-- Websites: Green
-- Nouns: Orange
+The file carries no pre-set colours or sizes; style from the node attributes
+(see [Node Metrics](#node-metrics)).
 
-**Sizes** (pre-configured by degree):
-- Already scaled 10-100
-- Optional: Appearance → Nodes → Ranking → Degree
+**Colors:** Appearance → Nodes → Partition
+- `node_type` for the two sides of the bipartite network
+- `community` for Louvain communities
+
+**Sizes:** Appearance → Nodes → Ranking → `eigenvector` (or `pagerank` for
+directed networks). Mind the per-component scaling described below.
 
 ### 5. Filter Network
 **Filters panel:**
