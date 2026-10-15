@@ -1,8 +1,19 @@
 # Graphology Migration Guide
 
 **Version**: 6.0.0
-**Last Updated**: December 9, 2025
-**Status**: Planning Phase (Vis.js → Graphology)
+**Last Updated**: October 14, 2026
+**Status**: Implemented. The viewer runs on Graphology + Sigma.js and the Vis.js code has been removed.
+
+> **Reading this document now.** It began as the migration plan and is kept for the
+> reasoning. What shipped differs from it in three ways:
+> - Vis.js was removed directly. The staged rollout and the `USE_GRAPHOLOGY_VIZ` /
+>   `USE_VISJS_LEGACY` flags below were never built.
+> - The viewer uses **Sigma.js 2.4.0**, not the 3.0 named in the comparison tables.
+> - The "Performance Comparison" figures are projections made before implementation, not
+>   measurements.
+>
+> For how the viewer works today, see
+> [NETWORK_VISUALIZATION_SETTINGS.md](NETWORK_VISUALIZATION_SETTINGS.md).
 
 ---
 
@@ -84,7 +95,7 @@ The migration follows patterns from [some2net](https://github.com/dimelab/some2n
 
 ### Stack Comparison
 
-| Component | v5.0.0 (Current) | v6.0.0 (Planned) |
+| Component | v5.0.0 (Vis.js) | v6.0.0 (Graphology) |
 |-----------|------------------|------------------|
 | **Graph Library** | Vis.js 9.x | Graphology 0.25.x |
 | **Rendering** | Vis.js (Canvas) | Sigma.js 3.0 (WebGL) |
@@ -242,11 +253,12 @@ const visualizer = new GraphologyNetworkVisualizer('network-container', {
 
 ## Migration Timeline
 
-### Phase 4: Frontend - Graphology Migration (Planned)
+### Phase 4: Frontend - Graphology Migration (Done)
 
-**Status**: 📋 Not Yet Implemented
+**Status**: ✅ Implemented in `frontend/static/js/network-viz-graphology.js` and
+`frontend/templates/networks/visualize.html`
 
-**Estimated Time**: 6-8 hours
+**Estimated Time**: 6-8 hours (original estimate)
 
 **Tasks**:
 1. Add Graphology dependencies (CDN)
@@ -257,7 +269,9 @@ const visualizer = new GraphologyNetworkVisualizer('network-container', {
 6. Update visualization templates
 7. Test with existing networks
 
-### Gradual Rollout Strategy
+### Gradual Rollout Strategy (original plan, not followed)
+
+Vis.js was removed in one step instead of through these stages; no feature flags exist.
 
 #### Stage 1: Parallel Implementation (v6.0.0)
 - ✅ Keep Vis.js as default
@@ -358,10 +372,10 @@ const visualizer = new GraphologyNetworkVisualizer('network-container', {
 
 | Feature | Vis.js | Graphology | Notes |
 |---------|--------|------------|-------|
-| **Physics Toggle** | ✅ | ⚠️ | Different approach (layout pre-computed) |
-| **Node Drag** | ✅ | ✅ | Planned |
+| **Physics Toggle** | ✅ | ⚠️ | Start/Stop Layout buttons (ForceAtlas2, runs on the main thread) |
+| **Node Drag** | ✅ | 📋 | Not implemented |
 | **Edge Hover** | ⚠️ | ✅ | Better in Graphology |
-| **Clustering** | ✅ | 📋 | To be implemented |
+| **Clustering** | ✅ | ✅ | Louvain communities computed on the server; "Community" colour mode in the viewer |
 | **Custom Styling** | ⚠️ | ✅ | More flexible in Graphology |
 
 ### Legend
@@ -387,29 +401,34 @@ const visualizer = new GraphologyNetworkVisualizer('network-container', {
 - Batch processing tasks
 - Integration points ready
 
-### Pending (Phases 1-4)
+### Completed (Phases 1-4)
 
-📋 **Backend Extraction** (Phase 1):
-- UniversalKeywordExtractor
-- TransformerNERExtractor
-- RAKE implementation
-- TF-IDF with bigrams
+Checked by looking for the code, not by re-running it.
 
-📋 **Database Schema** (Phase 2):
-- ExtractedKeyword fields
-- ExtractedNER table
-- Migration scripts
+✅ **Backend Extraction** (Phase 1):
+- Keyword extraction (noun / all_pos / tfidf / rake): `backend/core/nlp/keyword_extraction.py`
+- RAKE: `backend/core/nlp/rake_extraction.py`
+- Transformer NER (optional, `transformers`/`torch` are not in `requirements.txt`):
+  `backend/core/nlp/ner_transformer.py`
 
-📋 **Network Builders** (Phase 3):
-- WebsiteKeywordNetworkBuilder
-- WebsiteNERNetworkBuilder
-- Integration with new extractors
+✅ **Database Schema** (Phase 2):
+- `extraction_method` columns in `backend/models/analysis.py`
+- Migration `migrations/versions/v6_0_0_keyword_and_ner_enhancements.py`
 
-📋 **Frontend Visualization** (Phase 4):
-- GraphologyNetworkVisualizer class
-- GEXF parsing with Graphology
-- ForceAtlas2 layout integration
-- UI updates
+✅ **Network Builders** (Phase 3):
+- `WebsiteKeywordNetworkBuilder` and `WebsiteNounNetworkBuilder`: `backend/core/networks/website_noun.py`
+- `WebsiteNERNetworkBuilder`: `backend/core/networks/website_ner.py`
+
+✅ **Frontend Visualization** (Phase 4):
+- `GraphologyNetworkVisualizer`, GEXF parsing and ForceAtlas2 layout:
+  `frontend/static/js/network-viz-graphology.js`
+- UI: `frontend/templates/networks/visualize.html`
+- Vis.js (`network-viz.js` and the vis-network CDN tags) removed
+
+✅ **Beyond the original plan**: node metrics (Louvain communities, per-component
+eigenvector centrality, PageRank for directed graphs) are added to every network at
+generation time (`backend/core/networks/metrics.py`, see `NETWORK_GENERATION_GUIDE.md`),
+and the viewer sizes and colours nodes from them.
 
 ---
 
@@ -492,23 +511,23 @@ if (this.renderer.getCanvas) {
 
 #### Phase 4 Implementation
 
-- [ ] Add Graphology CDN links to base.html
-- [ ] Create GraphologyNetworkVisualizer class
-- [ ] Implement GEXF parsing
-- [ ] Implement ForceAtlas2 layout
-- [ ] Add interaction handlers (click, hover)
-- [ ] Implement search functionality
-- [ ] Implement filter functionality
-- [ ] Add PNG export
-- [ ] Update visualization templates
-- [ ] Test with small networks (<100 nodes)
-- [ ] Test with medium networks (100-1000 nodes)
+- [x] Add Graphology CDN links to base.html
+- [x] Create GraphologyNetworkVisualizer class
+- [x] Implement GEXF parsing
+- [x] Implement ForceAtlas2 layout
+- [x] Add interaction handlers (click, double-click to focus)
+- [x] Implement search functionality
+- [x] Implement filter functionality
+- [x] Add PNG export
+- [x] Update visualization templates
+- [x] Test with small networks (<100 nodes) (14-node graph, automated headless-Chrome harness)
+- [x] Test with medium networks (100-1000 nodes) (835-node graph, same harness)
 - [ ] Test with large networks (1000+ nodes)
 - [ ] Cross-browser testing (Chrome, Firefox, Safari, Edge)
 - [ ] Mobile testing (iOS, Android)
 - [ ] Performance benchmarking
 - [ ] User acceptance testing
-- [ ] Update documentation
+- [x] Update documentation
 - [ ] Deploy to staging
 - [ ] Beta testing period
 - [ ] Deploy to production
@@ -561,14 +580,13 @@ The Graphology migration will bring significant performance improvements, especi
 - 🔧 More extensible architecture
 - 📚 Better documentation
 
-**Timeline**:
-- v6.0.0: Experimental (with Vis.js fallback)
-- v6.1.0: Default (with Vis.js legacy option)
-- v6.2.0: Graphology only
+(The percentages above are the original projections; no before/after measurements were
+taken, because Vis.js was removed without a side-by-side benchmark.)
 
-Stay tuned for updates as Phase 4 development progresses!
+**Outcome**: Graphology + Sigma.js is the only viewer. There was no experimental or
+fallback period. Not yet done: large-network (1000+ nodes), cross-browser and mobile
+testing, and benchmarking.
 
 ---
 
-**Last Updated**: December 9, 2025
-**Next Review**: After Phase 4 implementation
+**Last Updated**: October 14, 2026

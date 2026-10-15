@@ -425,9 +425,7 @@
                 this.loadingSessions = true;
                 try {
                     const response = await fetch('/api/search/sessions?per_page=100', {
-                        headers: {
-                            'Authorization': 'Bearer ' + localStorage.getItem('token')
-                        }
+                        headers: authHeaders()
                     });
 
                     if (response.ok) {
@@ -521,10 +519,7 @@
 
                     const response = await fetch('/api/networks/generate', {
                         method: 'POST',
-                        headers: {
-                            'Authorization': 'Bearer ' + localStorage.getItem('token'),
-                            'Content-Type': 'application/json'
-                        },
+                        headers: authHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify(payload)
                     });
 

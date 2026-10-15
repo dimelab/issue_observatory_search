@@ -2,7 +2,9 @@
 
 **Version:** 6.0.0
 **Date:** December 9, 2025
-**Status:** DRAFT - Pending Approval
+**Status:** Implemented. This is the original plan and is kept for its reasoning; see
+[GRAPHOLOGY_MIGRATION.md](GRAPHOLOGY_MIGRATION.md) for what shipped and how it differed, and
+[NETWORK_VISUALIZATION_SETTINGS.md](NETWORK_VISUALIZATION_SETTINGS.md) for the current viewer.
 
 ---
 

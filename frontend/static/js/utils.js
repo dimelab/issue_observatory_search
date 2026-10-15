@@ -307,6 +307,24 @@ async function retry(fn, maxRetries = 3, delay = 1000) {
     }
 }
 
+/**
+ * Request headers for same-origin API calls, with Bearer auth when a token is stored
+ *
+ * Without a stored token no Authorization header is sent, so the access_token
+ * cookie authenticates the request. A header always takes priority over the
+ * cookie on the server, so sending "Bearer null" would fail a valid session.
+ * @param {Object} extra - Additional headers (e.g. Content-Type)
+ * @returns {Object} Headers object for fetch
+ */
+function authHeaders(extra = {}) {
+    const headers = { ...extra };
+    const token = localStorage.getItem('token');
+    if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+    }
+    return headers;
+}
+
 // Export utility functions to window object
 window.utils = {
     debounce,
@@ -326,5 +344,6 @@ window.utils = {
     isValidURL,
     truncate,
     sleep,
+    authHeaders,
     retry
 };

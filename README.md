@@ -11,7 +11,7 @@ A comprehensive web application for digital methods research: conduct systematic
 ✅ **Intelligent Web Scraping** - Multi-level scraping with robots.txt compliance
 ✅ **NLP Analysis** - Noun extraction, Named Entity Recognition, TF-IDF ranking
 ✅ **Network Generation** - Issue networks with statistical backboning (GEXF export)
-✅ **Interactive Visualization** - Vis.js network viewer with search and filtering
+✅ **Interactive Visualization** - Sigma.js network viewer: ForceAtlas2 layout, node size by eigenvector centrality, type or Louvain-community colouring, filters, PNG and Gephi export
 ✅ **Modern Web UI** - HTMX + Alpine.js + Tailwind CSS responsive interface
 ✅ **Keyboard Shortcuts** - 25+ shortcuts for power users
 ✅ **Accessibility** - WCAG 2.1 AA compliant, screen reader support

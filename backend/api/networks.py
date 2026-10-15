@@ -1,11 +1,13 @@
 """Network API endpoints for Phase 6."""
 import logging
+import os
 from typing import Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from backend.database import get_db
 from backend.utils.dependencies import CurrentUser
@@ -265,6 +267,7 @@ async def download_network(
         )
 
     # For other formats, load graph and export
+    temp_path: Optional[str] = None
     try:
         # Load graph from GEXF
         graph = nx.read_gexf(str(file_path))
@@ -290,13 +293,17 @@ async def download_network(
 
         # Return file
         filename = f"{network.name}_{network.id}.{format}"
+        # Delete the temp file once the response has been sent
         return FileResponse(
             path=temp_path,
             filename=filename,
             media_type=media_type,
+            background=BackgroundTask(os.unlink, temp_path),
         )
 
     except Exception as e:
+        if temp_path:
+            Path(temp_path).unlink(missing_ok=True)
         logger.error(f"Error exporting network {network_id} to {format}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
