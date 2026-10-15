@@ -72,6 +72,23 @@ const COMMUNITY_PALETTE = [
 ];
 const COMMUNITY_OTHER_COLOR = '#CBD5E1';
 
+// Layout loop (animateLayout). Each animation frame refreshes Sigma once and runs as many
+// ForceAtlas2 iterations as fit in the budget (an iteration costs about 1 ms at 800 nodes
+// and 4 ms at 2,600), instead of one per frame. The budget is at least
+// LAYOUT_FRAME_BUDGET_MS and follows the redraw time, so a slow renderer is not asked to
+// redraw after every iteration. With strong gravity the layout converges:
+// it stops by itself when, over LAYOUT_SETTLE_WINDOW iterations, nodes moved on average
+// less than LAYOUT_SETTLE_MOVE of the core's size per iteration (and at least
+// LAYOUT_MIN_ITERATIONS have run). The core's size is the 5th-95th percentile range of the
+// positions, not the bounding box: in classic mode outliers keep drifting and inflate the
+// box, which would make a layout that is still collapsing look settled.
+const LAYOUT_FRAME_BUDGET_MS = 10;
+const LAYOUT_MAX_FRAME_BUDGET_MS = 40;  // the budget grows with the time a redraw takes, up to this
+const LAYOUT_MAX_ITERATIONS_PER_FRAME = 40;
+const LAYOUT_SETTLE_WINDOW = 50;
+const LAYOUT_SETTLE_MOVE = 0.0005;
+const LAYOUT_MIN_ITERATIONS = 100;
+
 // Label spreading (setAllLabels). Sigma's default label renderer draws the text
 // LABEL_GAP px right of the node's edge with its baseline labelSize / 3 below the
 // centre; LABEL_PADDING is the space kept between two label boxes.
@@ -129,6 +146,11 @@ class GraphologyNetworkVisualizer {
         this.renderer = null;
         this.layoutIsRunning = false;
         this.layoutAnimationFrame = null;
+        this.layoutIterations = 0;        // iterations run since the layout was last started
+        this.layoutItersPerFrame = 1;     // adapts to what fits in the frame budget
+        this.layoutRenderMs = 0;          // recent redraw time (moving average)
+        this.layoutStartedAt = 0;
+        this.settleWindow = null;         // positions at the start of the current settle window
 
         // Configuration (similar to some2net)
         this.options = {
@@ -139,8 +161,13 @@ class GraphologyNetworkVisualizer {
                 edgeWeightInfluence: 1.0,
                 gravity: 1.0,
                 scalingRatio: 10,
-                slowDown: 1,
+                slowDown: 1,  // replaced by 1 + ln(nodes) when a graph is loaded (tuneLayoutForGraph)
                 linLogMode: false,
+                // Gravity that grows with distance from the centre. Classic ForceAtlas2 gravity is
+                // constant, so small subgraphs are pushed far out by the big core and keep drifting;
+                // the fit-to-screen view then shrinks the core into a tight blob. With strong
+                // gravity they stay near, the layout settles and the core fills the view.
+                strongGravityMode: true,
                 ...(options.fa2Settings || {})
             },
             sigma: {
@@ -406,6 +433,8 @@ class GraphologyNetworkVisualizer {
 
         this.computeNodeSizes();
 
+        this.tuneLayoutForGraph();
+
         // A new graph has no label spread to undo
         this.allLabels = false;
         this.labelSpreadInfo = null;
@@ -620,26 +649,63 @@ class GraphologyNetworkVisualizer {
 
         // The layout moves every node, so the positions saved by the label spread are stale
         this.spreadSnapshot = null;
+        this.layoutIterations = 0;
+        this.layoutItersPerFrame = 1;
+        this.layoutRenderMs = 0;
+        this.layoutStartedAt = performance.now();
+        this.settleWindow = null;
         this.layoutIsRunning = true;
         this.onLayoutStateChange(true);
         this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
     }
 
     /**
-     * Animation loop for continuous layout using synchronous iterations
+     * Animation loop for the layout: runs as many synchronous ForceAtlas2 iterations as fit
+     * in LAYOUT_FRAME_BUDGET_MS, refreshes Sigma once, and stops by itself when the layout
+     * has settled (see LAYOUT_SETTLE_MOVE).
      */
     animateLayout() {
         if (!this.layoutIsRunning) return;
 
         try {
-            // Run 1 iteration synchronously (settings are read fresh every iteration)
+            // Settings are read fresh on every call, so slider changes apply on the next frame
+            const iterations = this.layoutItersPerFrame;
+            const started = performance.now();
             graphologyLibrary.layoutForceAtlas2.assign(this.graph, {
-                iterations: 1,
+                iterations,
                 settings: this.options.fa2Settings
             });
+            const layoutMs = performance.now() - started;
+            this.layoutIterations += iterations;
 
             // Refresh renderer
+            const drawStarted = performance.now();
             this.renderer.refresh();
+            const drawMs = performance.now() - drawStarted;
+            this.layoutRenderMs = this.layoutRenderMs ? 0.7 * this.layoutRenderMs + 0.3 * drawMs : drawMs;
+
+            // Next frame's iteration count. Every assign call has a fixed set-up cost, so the
+            // cost of one iteration cannot be read from a one-iteration call: grow while
+            // there is room in the budget, shrink in proportion when over it.
+            const budget = Math.min(LAYOUT_MAX_FRAME_BUDGET_MS, Math.max(LAYOUT_FRAME_BUDGET_MS, this.layoutRenderMs));
+            if (layoutMs < budget * 0.7) {
+                this.layoutItersPerFrame = Math.min(
+                    LAYOUT_MAX_ITERATIONS_PER_FRAME,
+                    Math.max(iterations + 1, Math.ceil(iterations * 1.5))
+                );
+            } else if (layoutMs > budget * 1.2) {
+                this.layoutItersPerFrame = Math.max(1, Math.floor(iterations * budget / layoutMs));
+            }
+
+            if (this.layoutHasSettled(iterations)) {
+                const result = {
+                    iterations: this.layoutIterations,
+                    ms: Math.round(performance.now() - this.layoutStartedAt)
+                };
+                this.stopLayout();
+                this.onLayoutSettled(result);
+                return;
+            }
 
             // Schedule next frame
             this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
@@ -647,6 +713,53 @@ class GraphologyNetworkVisualizer {
             console.error('Error in layout animation:', error);
             this.stopLayout();
         }
+    }
+
+    /**
+     * Whether the layout has stopped changing: compares node positions at the start and
+     * end of each window of LAYOUT_SETTLE_WINDOW iterations. Called once per frame with
+     * the number of iterations that frame ran.
+     */
+    layoutHasSettled(iterations) {
+        const capture = () => {
+            const x = new Float64Array(this.graph.order);
+            const y = new Float64Array(this.graph.order);
+            let index = 0;
+            this.graph.forEachNode((node, attributes) => {
+                x[index] = attributes.x;
+                y[index] = attributes.y;
+                index++;
+            });
+            return { x, y, iterations: 0 };
+        };
+
+        if (!this.settleWindow) {
+            this.settleWindow = capture();
+            return false;
+        }
+        this.settleWindow.iterations += iterations;
+        if (this.settleWindow.iterations < LAYOUT_SETTLE_WINDOW) return false;
+
+        const { x, y, iterations: windowIterations } = this.settleWindow;
+        let moved = 0;
+        let index = 0;
+        const xs = [];
+        const ys = [];
+        this.graph.forEachNode((node, attributes) => {
+            moved += Math.hypot(attributes.x - x[index], attributes.y - y[index]);
+            xs.push(attributes.x);
+            ys.push(attributes.y);
+            index++;
+        });
+        xs.sort((a, b) => a - b);
+        ys.sort((a, b) => a - b);
+        const low = Math.floor((xs.length - 1) * 0.05);
+        const high = Math.floor((xs.length - 1) * 0.95);
+        const coreSize = Math.max(xs[high] - xs[low], ys[high] - ys[low]) || 1;
+        const perIteration = moved / this.graph.order / windowIterations / coreSize;
+
+        this.settleWindow = capture();
+        return this.layoutIterations >= LAYOUT_MIN_ITERATIONS && perIteration < LAYOUT_SETTLE_MOVE;
     }
 
     /**
@@ -661,6 +774,14 @@ class GraphologyNetworkVisualizer {
             this.layoutIsRunning = false;
             this.onLayoutStateChange(false);
         }
+    }
+
+    /**
+     * Pick the ForceAtlas2 slow-down for the loaded graph: 1 + ln(nodes), ForceAtlas2's own
+     * recommendation, which gives smoother convergence on larger graphs
+     */
+    tuneLayoutForGraph() {
+        this.options.fa2Settings.slowDown = 1 + Math.log(Math.max(this.graph.order, 1));
     }
 
     /**
@@ -1520,7 +1641,12 @@ class GraphologyNetworkVisualizer {
 
     onLayoutStateChange(running) {
         // Override this method to follow the layout starting/stopping (including
-        // when it stops itself after an error)
+        // when it stops itself after an error or because it settled)
+    }
+
+    onLayoutSettled(result) {
+        // Override this method to be told when the layout stopped itself because the
+        // nodes stopped moving; result = { iterations, ms }
     }
 
     /**

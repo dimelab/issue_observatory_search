@@ -40,6 +40,14 @@
                 </div>
                 {% endif %}
 
+                {% if job.already_collected or job.skipped_count %}
+                <p class="mt-2 text-xs text-gray-500 job-skipped-line">
+                    {% if job.already_collected %}{{ job.already_collected }} already collected (left out){% endif %}
+                    {% if job.already_collected and job.skipped_count %} &middot; {% endif %}
+                    {% if job.skipped_count %}{{ job.skipped_count }} skipped{% endif %}
+                </p>
+                {% endif %}
+
                 <!-- Job Details -->
                 <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div>

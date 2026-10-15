@@ -87,6 +87,27 @@
                 </div>
             </div>
             {% endif %}
+
+            <!-- URLs this job did not fetch. They are not part of Total URLs above. -->
+            {% if job.already_collected or job.skipped_count %}
+            <p id="job-skipped-line" class="mt-3 text-sm text-gray-600">
+                {% if job.already_collected %}
+                <span id="job-already-collected"
+                      title="A job skips pages that an earlier job on this search session already scraped successfully">
+                    <span class="font-medium">Left out:</span>
+                    {{ job.already_collected }} URLs already collected by earlier jobs
+                </span>
+                {% endif %}
+                {% if job.already_collected and job.skipped_count %}<span class="mx-2 text-gray-300">|</span>{% endif %}
+                {% if job.skipped_count %}
+                <span id="job-skipped"
+                      title="Pages on excluded domains, blocked by robots.txt, or already fetched in this job">
+                    <span class="font-medium">Skipped:</span>
+                    {{ job.skipped_count }} (excluded domains, robots.txt or duplicates)
+                </span>
+                {% endif %}
+            </p>
+            {% endif %}
         </div>
 
         <!-- Statistics Cards -->

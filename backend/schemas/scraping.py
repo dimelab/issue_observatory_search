@@ -109,6 +109,7 @@ class ScrapingJobResponse(BaseModel):
     urls_scraped: int
     urls_failed: int
     urls_skipped: int
+    urls_already_collected: int = 0
     current_depth: int
     celery_task_id: Optional[str]
     error_message: Optional[str]
@@ -146,6 +147,7 @@ class ScrapingJobStatistics(BaseModel):
     urls_scraped: int
     urls_failed: int
     urls_skipped: int
+    urls_already_collected: int = 0
     current_depth: int
     progress_percentage: float
     total_content: int

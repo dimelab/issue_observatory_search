@@ -4,7 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
-<script src="/static/js/network-viz-graphology.js?v=6.0.0.6"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.7"></script>
 <style>
     #network-container {
         width: 100%;
@@ -139,6 +139,7 @@
             </div>
         </div>
 
+        <p x-show="layoutNote" x-cloak id="layout-note" class="mt-2 text-xs text-gray-500" x-text="layoutNote"></p>
         <p x-show="allLabels && allLabelsNote" x-cloak id="all-labels-note" class="mt-2 text-xs text-gray-500" x-text="allLabelsNote"></p>
 
         <!-- Layout Settings Panel -->
@@ -146,17 +147,34 @@
             <h3 class="text-sm font-semibold text-gray-900 mb-4">ForceAtlas2 Settings</h3>
 
             <div class="space-y-4">
+                <!-- Strong gravity -->
+                <div>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox"
+                               x-model="layoutSettings.strongGravityMode"
+                               @change="updateLayoutSettings()"
+                               id="strongGravity"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm font-medium text-gray-700">Strong gravity</span>
+                    </label>
+                    <p class="mt-1 ml-6 text-xs text-gray-500" id="strong-gravity-note">
+                        Keeps small subgraphs near the centre so the drawing fills the screen and settles.
+                        Off: classic ForceAtlas2, where they drift far out and squeeze the core into a tight blob.
+                    </p>
+                </div>
+
                 <!-- Gravity -->
                 <div>
                     <div class="flex justify-between items-center mb-1">
                         <label class="text-sm font-medium text-gray-700">Gravity</label>
-                        <span class="text-sm text-gray-600" x-text="layoutSettings.gravity"></span>
+                        <span class="text-sm text-gray-600" x-text="layoutSettings.gravity.toFixed(2)"></span>
                     </div>
                     <input type="range"
                            x-model.number="layoutSettings.gravity"
                            @input="updateLayoutSettings()"
-                           min="0" max="5" step="0.1"
+                           min="0" max="5" step="0.05"
                            class="w-full">
+                    <div class="text-xs text-gray-500 mt-1">Higher: more compact and even. Lower: looser, with small groups further out.</div>
                 </div>
 
                 <!-- Scaling Ratio -->
@@ -170,6 +188,7 @@
                            @input="updateLayoutSettings()"
                            min="1" max="50" step="1"
                            class="w-full">
+                    <div class="text-xs text-gray-500 mt-1">Repulsion between nodes: higher spreads the layout out relative to gravity.</div>
                 </div>
 
                 <!-- Edge Weight Influence -->
@@ -422,14 +441,16 @@
             sizeBusy: false,           // betweenness is being computed
             hasCommunities: false,
             exportOpen: false,
+            // slowDown is not here on purpose: the visualizer sets it from the graph size
             layoutSettings: {
                 gravity: 1.0,
                 scalingRatio: 10,
                 edgeWeightInfluence: 1.0,
                 barnesHutOptimize: true,
                 barnesHutTheta: 1.2,
-                slowDown: 1
+                strongGravityMode: true
             },
+            layoutNote: '',            // e.g. "Layout settled after 340 iterations"
             stats: {
                 nodes: 0,
                 edges: 0,
@@ -456,6 +477,13 @@
                 // when it stops itself after an error
                 this.visualizer.onLayoutStateChange = (running) => {
                     this.layoutRunning = running;
+                    if (running) this.layoutNote = '';
+                };
+
+                // The layout stops itself once the nodes stop moving
+                this.visualizer.onLayoutSettled = (result) => {
+                    this.layoutNote = `Layout settled after ${result.iterations} iterations (${(result.ms / 1000).toFixed(1)} s). ` +
+                        'Change a setting or press Start Layout to run it again.';
                 };
 
                 // Load network data
@@ -627,9 +655,12 @@
             },
 
             updateLayoutSettings() {
-                // Settings are read on every layout iteration, so no restart is needed
+                // Settings are read on every layout iteration, so a running layout follows
+                // them live. A stopped one (including one that settled) is started again,
+                // otherwise moving a slider would change nothing you can see.
                 if (this.visualizer && typeof this.visualizer.updateLayoutSettings === 'function') {
                     this.visualizer.updateLayoutSettings(this.layoutSettings);
+                    if (!this.layoutRunning) this.startLayout();
                 }
             },
 

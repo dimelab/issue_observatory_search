@@ -200,8 +200,16 @@ with the message "No new URLs to scrape". The same applies to links followed at 
    - **Total URLs**: How many URLs to scrape
    - **Scraped**: Successfully scraped
    - **Failed**: CAPTCHA challenges or errors
-   - **Skipped**: Excluded domains or robots.txt blocked
    - **Progress**: Percentage complete
+
+   A line under the progress bar lists the URLs this job did not fetch (they are not part of
+   **Total URLs**):
+   - **Left out**: URLs already collected by earlier jobs on the same search session
+     (see Step 5.1). Shown when a job skips something it already has.
+   - **Skipped**: URLs on excluded domains, pages blocked by robots.txt, and duplicates
+
+   So if you added keywords and scraped again, "Total URLs" is just the new pages, and
+   "Left out" says how many earlier ones were not scraped again.
 
 5. Scraping can take a while:
    - 10 URLs: ~2-5 minutes

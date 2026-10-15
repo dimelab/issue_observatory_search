@@ -46,6 +46,11 @@ class ScrapingJob(Base):
     urls_scraped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     urls_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     urls_skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # robots.txt blocked, etc.
+    # Session URLs left out of total_urls because an earlier job on the session already
+    # scraped them successfully (recorded when the job starts)
+    urls_already_collected: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     # Current depth being processed
     current_depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

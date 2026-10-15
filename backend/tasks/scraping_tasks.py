@@ -127,6 +127,7 @@ def scrape_session_task(self, job_id: int) -> dict:
                 collected_before = await get_previously_collected_urls(session, job)
                 initial_urls = [u for u in search_urls if u not in collected_before]
                 job.total_urls = len(initial_urls)
+                job.urls_already_collected = len(search_urls) - len(initial_urls)
                 await session.commit()
 
                 if not initial_urls:
