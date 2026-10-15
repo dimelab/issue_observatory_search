@@ -28,6 +28,37 @@ async def get_async_session() -> AsyncSession:
     return AsyncSessionLocal()
 
 
+async def get_previously_collected_urls(
+    session: AsyncSession,
+    job: ScrapingJob,
+) -> set[str]:
+    """
+    Get the URLs earlier jobs on the same search session already collected.
+
+    Only successful scrapes count: a URL whose earlier attempt failed is tried
+    again. This is what lets a new job after keywords were added to a session
+    scrape just the new URLs.
+
+    Args:
+        session: Database session
+        job: The job about to run; its own content is excluded
+
+    Returns:
+        Set of URLs with a successful WebsiteContent from another job of
+        the same search session
+    """
+    result = await session.execute(
+        select(WebsiteContent.url)
+        .join(ScrapingJob, WebsiteContent.scraping_job_id == ScrapingJob.id)
+        .where(
+            ScrapingJob.session_id == job.session_id,
+            ScrapingJob.id != job.id,
+            WebsiteContent.status == "success",
+        )
+    )
+    return set(result.scalars().all())
+
+
 @celery_app.task(
     bind=True,
     name="scrape_session",
@@ -90,12 +121,28 @@ def scrape_session_task(self, job_id: int) -> dict:
                     await session.commit()
                     return {"status": "completed", "message": "No URLs to scrape"}
 
-                # Get unique URLs
-                initial_urls = list(set([r.url for r in search_results]))
+                # Get unique URLs, leaving out those an earlier job on this
+                # session already collected
+                search_urls = set(r.url for r in search_results)
+                collected_before = await get_previously_collected_urls(session, job)
+                initial_urls = [u for u in search_urls if u not in collected_before]
                 job.total_urls = len(initial_urls)
                 await session.commit()
 
-                logger.info(f"Starting scraping job {job_id} with {len(initial_urls)} initial URLs")
+                if not initial_urls:
+                    job.status = "completed"
+                    job.completed_at = datetime.utcnow()
+                    job.error_message = (
+                        f"No new URLs to scrape: all {len(search_urls)} were "
+                        f"already collected by earlier jobs on this session"
+                    )
+                    await session.commit()
+                    return {"status": "completed", "message": "No new URLs to scrape"}
+
+                logger.info(
+                    f"Starting scraping job {job_id} with {len(initial_urls)} initial "
+                    f"URLs ({len(search_urls) - len(initial_urls)} already collected)"
+                )
 
                 # Scrape depth 1 (initial URLs)
                 scraped_urls = set()
@@ -126,7 +173,7 @@ def scrape_session_task(self, job_id: int) -> dict:
                     filtered_urls = await filter_urls(
                         urls=next_level_urls,
                         job=job,
-                        already_scraped=scraped_urls,
+                        already_scraped=scraped_urls | collected_before,
                     )
 
                     logger.info(f"Scraping depth 2: {len(filtered_urls)} URLs")
@@ -162,7 +209,7 @@ def scrape_session_task(self, job_id: int) -> dict:
                     filtered_urls = await filter_urls(
                         urls=next_level_urls,
                         job=job,
-                        already_scraped=scraped_urls,
+                        already_scraped=scraped_urls | collected_before,
                     )
 
                     logger.info(f"Scraping depth 3: {len(filtered_urls)} URLs")

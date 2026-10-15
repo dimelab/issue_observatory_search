@@ -1,4 +1,5 @@
 """Search API endpoints."""
+import logging
 import math
 from typing import Annotated
 
@@ -10,8 +11,11 @@ from sqlalchemy.orm import selectinload
 from backend.database import get_db
 from backend.models.search import SearchSession, SearchQuery
 from backend.schemas.search import (
+    SearchAddQueriesRequest,
+    SearchAddQueriesResponse,
     SearchExecuteRequest,
     SearchExecuteResponse,
+    SearchRunPendingResponse,
     SearchSessionResponse,
     SearchSessionDetailResponse,
     SearchSessionListResponse,
@@ -20,6 +24,8 @@ from backend.schemas.search import (
 )
 from backend.services.search_service import SearchService
 from backend.utils.dependencies import CurrentUser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -270,6 +276,128 @@ async def get_session(
         updated_at=session.updated_at,
         queries=query_responses
     )
+
+
+@router.post(
+    "/session/{session_id}/queries",
+    response_model=SearchAddQueriesResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_session_queries(
+    session_id: int,
+    request: SearchAddQueriesRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+) -> SearchAddQueriesResponse:
+    """
+    Add keywords to an existing search session.
+
+    The keywords use the session's original search settings and are only
+    queued (status "pending"); no search runs until
+    POST /session/{session_id}/queries/run. Keywords already in the session
+    are skipped and listed in the response.
+
+    Args:
+        session_id: Search session ID
+        request: Keywords to add
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        SearchAddQueriesResponse: Keywords added and skipped, and how many
+            keywords are now waiting to be searched
+    """
+    service = SearchService(db, current_user)
+
+    session = await service.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Search session not found"
+        )
+
+    added, skipped = await service.add_queries(session, request.queries)
+    pending_count = await service.count_pending_queries(session.id)
+
+    if added:
+        message = f"Added {len(added)} keywords"
+    else:
+        message = "No new keywords: all were already in this session"
+
+    return SearchAddQueriesResponse(
+        session_id=session.id,
+        added=[query.query_text for query in added],
+        skipped=skipped,
+        pending_count=pending_count,
+        message=message,
+    )
+
+
+@router.post(
+    "/session/{session_id}/queries/run",
+    response_model=SearchRunPendingResponse,
+)
+async def run_session_queries(
+    session_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+) -> SearchRunPendingResponse:
+    """
+    Search for the keywords added to a session and not yet collected.
+
+    Runs inline, like POST /execute, so the request lasts as long as the
+    searches. Results are deduplicated against the session's existing
+    results. Calling it with nothing pending is a no-op.
+
+    Args:
+        session_id: Search session ID
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        SearchRunPendingResponse: How many keywords ran, failed, and how many
+            new results were stored
+    """
+    service = SearchService(db, current_user)
+
+    session = await service.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Search session not found"
+        )
+
+    if session.status == "processing":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This session is still running its search"
+        )
+
+    try:
+        summary = await service.run_pending_queries(session)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception:
+        logger.exception(f"Failed to run pending queries for session {session_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search for the new keywords"
+        )
+
+    if summary["queries_run"] == 0:
+        message = "No new keywords to search"
+    else:
+        message = (
+            f"Searched {summary['queries_run']} keywords, "
+            f"{summary['new_results']} new results"
+        )
+        if summary["queries_failed"]:
+            message += f", {summary['queries_failed']} failed"
+
+    return SearchRunPendingResponse(session_id=session.id, message=message, **summary)
 
 
 @router.delete("/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

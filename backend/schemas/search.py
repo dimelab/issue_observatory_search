@@ -57,6 +57,57 @@ class SearchExecuteResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SearchAddQueriesRequest(BaseModel):
+    """Request schema for adding keywords to an existing search session."""
+
+    queries: list[str] = Field(
+        ..., min_length=1, max_length=50, description="Keywords to add to the session"
+    )
+
+    @field_validator("queries")
+    @classmethod
+    def clean_queries(cls, v: list[str]) -> list[str]:
+        """Collapse whitespace, drop blanks and case-insensitive repeats."""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in v:
+            text = " ".join(raw.split())
+            if not text:
+                continue
+            if len(text) > 500:
+                raise ValueError("Keywords must be 500 characters or fewer")
+            key = text.casefold()
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(text)
+        if not cleaned:
+            raise ValueError("Provide at least one non-empty keyword")
+        return cleaned
+
+
+class SearchAddQueriesResponse(BaseModel):
+    """Response schema for adding keywords to a session."""
+
+    session_id: int
+    added: list[str]
+    skipped: list[str] = Field(
+        default_factory=list, description="Keywords already in the session"
+    )
+    pending_count: int = Field(description="Keywords waiting to be searched")
+    message: str
+
+
+class SearchRunPendingResponse(BaseModel):
+    """Response schema for searching the keywords added to a session."""
+
+    session_id: int
+    queries_run: int
+    queries_failed: int
+    new_results: int
+    pending_count: int
+    message: str
+
+
 class SearchResultResponse(BaseModel):
     """Response schema for a single search result."""
 

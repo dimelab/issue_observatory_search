@@ -198,6 +198,58 @@ curl -X GET http://localhost:8000/api/search/session/1 \
 }
 ```
 
+### Add Keywords to a Session
+
+Queues new keywords on an existing session. Nothing is searched yet: the keywords
+take the session's search settings and wait in status `pending`.
+
+```bash
+curl -X POST http://localhost:8000/api/search/session/1/queries \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -H "Content-Type: application/json" \
+  -d '{"queries": ["sea level rise", "Climate Change"]}'
+```
+
+**Response** (`201`):
+```json
+{
+  "session_id": 1,
+  "added": ["sea level rise"],
+  "skipped": ["Climate Change"],
+  "pending_count": 1,
+  "message": "Added 1 keywords"
+}
+```
+
+Keywords are trimmed, and compared case-insensitively against the session's existing
+keywords. A keyword whose earlier search failed can be added again to retry it.
+
+### Search the Added Keywords
+
+Runs the `pending` queries inline (the request lasts as long as the searches) and
+stores their results, leaving out URLs the session already holds. Calling it with
+nothing pending does nothing.
+
+```bash
+curl -X POST http://localhost:8000/api/search/session/1/queries/run \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+**Response:**
+```json
+{
+  "session_id": 1,
+  "queries_run": 1,
+  "queries_failed": 0,
+  "new_results": 8,
+  "pending_count": 0,
+  "message": "Searched 1 keywords, 8 new results"
+}
+```
+
+`409` if the session is still running its original search; `400` if the search
+engine's API key is not configured (the keywords stay pending).
+
 ### Delete Session
 
 ```bash
@@ -257,6 +309,11 @@ curl -X POST http://localhost:8000/api/scraping/jobs \
   "created_at": "2025-01-15T11:00:00"
 }
 ```
+
+A job only scrapes URLs that no other job on the same session has collected successfully
+(earlier failures are retried), at every depth. If every URL was collected before, the job
+completes immediately with `error_message` "No new URLs to scrape: ...". There is no option
+to force a full re-scrape yet.
 
 ### Start Scraping Job
 

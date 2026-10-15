@@ -47,6 +47,23 @@ const NODE_TYPE_COLORS = {
 const NODE_SIZE_MIN = 5;
 const NODE_SIZE_MAX = 30;
 
+// What node size can be based on, in the order the UI lists them. Degree and
+// betweenness are computed here from the graph; eigenvector and pagerank are read
+// from the file (see "Node Metrics" in the network generation guide) and are only
+// available when some node carries a value. pagerank is only offered when the file
+// has it, which today means never: no builder makes directed graphs.
+const SIZE_METRICS = [
+    { id: 'degree', label: 'Degree', description: 'Number of connections' },
+    { id: 'eigenvector', label: 'Eigenvector', description: 'Linked to well-connected nodes (scaled per component)' },
+    { id: 'betweenness', label: 'Betweenness', description: 'Sits on many shortest paths between other nodes (unweighted)' },
+    { id: 'pagerank', label: 'PageRank', description: 'Share of random-walk visits' }
+];
+
+// Betweenness runs on the main thread and grows with the square of the node count:
+// about 0.1 s at 800 nodes, 1 s at 3,400 and 3.4 s at 6,000. Past this size the UI
+// asks before computing it.
+const BETWEENNESS_SLOW_NODES = 8000;
+
 // Community colours: the backend numbers communities by size (0 = largest). Ranks
 // beyond the palette, and nodes without a community, are drawn in the neutral colour.
 const COMMUNITY_PALETTE = [
@@ -54,6 +71,27 @@ const COMMUNITY_PALETTE = [
     '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#17BECF'
 ];
 const COMMUNITY_OTHER_COLOR = '#CBD5E1';
+
+// Label spreading (setAllLabels). Sigma's default label renderer draws the text
+// LABEL_GAP px right of the node's edge with its baseline labelSize / 3 below the
+// centre; LABEL_PADDING is the space kept between two label boxes.
+const LABEL_GAP = 3;
+const LABEL_PADDING = 3;
+// Boxes are compared with LABEL_PADDING / 2 added on every side; an overlap of this many
+// px or less in that padded space still leaves a gap on screen, so it is not pushed
+// apart (this is what lets the relaxation finish instead of creeping towards 0)
+const LABEL_OVERLAP_TOLERANCE = 1;
+const LABEL_SPREAD_MAX_ITERATIONS = 2000;
+const LABEL_SPREAD_TIME_BUDGET_MS = 2500;
+// Stage 1 of the spread inflates the whole layout about its centre until at most this
+// many overlapping pairs per node remain (never beyond LABEL_SPREAD_MAX_INFLATION times
+// the current size); stage 2 pushes the remaining overlaps apart locally.
+const LABEL_SPREAD_TARGET_OVERLAPS_PER_NODE = 1.5;
+const LABEL_SPREAD_MAX_INFLATION = 12;
+// Moves in stage 2 are multiplied by this (successive over-relaxation). On a dense
+// 835-node layout it needs about 340 passes at 1.9, 670 at 1.6 and 1,450 at 1.3; it must
+// stay below 2, where a push would overshoot as far as it corrects.
+const LABEL_SPREAD_RELAXATION = 1.8;
 
 // Sigma canvas layers composited by exportAsPNG, bottom to top (hover/mouse layers
 // are interaction overlays and stay out of the export)
@@ -121,6 +159,10 @@ class GraphologyNetworkVisualizer {
         this.nodeSizeMultiplier = 0.5; // Node size control (0.1-3.0, default 0.5x)
         this.colorMode = 'type';       // 'type' | 'community'
         this.labelsVisible = true;
+        this.allLabels = false;        // label every visible node, whatever the zoom
+        this.labelSpreadInfo = null;   // result of the spread done when allLabels was switched on
+        this.spreadSnapshot = null;    // { positions: Map(node -> { x, y }), sizeCorrection } from before the spread, for undo
+        this.viewSizeCorrection = 1;   // keeps node circles the same size on screen after a spread zoomed the camera in
         this.filters = {
             nodeTypes: [],
             search: '',
@@ -138,8 +180,10 @@ class GraphologyNetworkVisualizer {
         // Node sizes are derived, never written to the graph: computeNodeSizes() fills
         // baseSizes over ALL nodes at load (so sizes are stable under filters) and the
         // node reducer multiplies by the size slider.
-        this.sizeMetric = 'degree';  // 'pagerank' | 'eigenvector' | 'degree'
+        this.sizeMetric = 'degree';  // an id from SIZE_METRICS
         this.baseSizes = new Map();
+        this.metricData = { eigenvector: false, pagerank: false };  // which file metrics exist
+        this.betweennessScores = null;  // Map(node -> raw score), computed on first use
         this.communityData = false;  // any node with a numeric community
 
         // Initialize
@@ -158,11 +202,12 @@ class GraphologyNetworkVisualizer {
                 renderLabels: this.labelsVisible,
                 nodeReducer: (node, data) => ({
                     ...data,
-                    size: (this.baseSizes.get(node) || NODE_SIZE_MIN) * this.nodeSizeMultiplier,
+                    size: (this.baseSizes.get(node) || NODE_SIZE_MIN) * this.nodeSizeMultiplier * this.viewSizeCorrection,
                     color: this.colorMode === 'community'
                         ? this.getCommunityColor(data.community)
                         : data.color,
-                    hidden: this.hiddenNodes.has(node)
+                    hidden: this.hiddenNodes.has(node),
+                    forceLabel: this.allLabels
                 }),
                 edgeReducer: (edge, data) => {
                     const [source, target] = this.graph.extremities(edge);
@@ -361,6 +406,12 @@ class GraphologyNetworkVisualizer {
 
         this.computeNodeSizes();
 
+        // A new graph has no label spread to undo
+        this.allLabels = false;
+        this.labelSpreadInfo = null;
+        this.spreadSnapshot = null;
+        this.viewSizeCorrection = 1;
+
         // Community colouring needs data; fall back to type colours if a reload lost it
         this.communityData = this.graph.someNode((node, attributes) => Number.isFinite(attributes.community));
         if (!this.communityData) {
@@ -378,53 +429,39 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Derive every node's base size from centrality, over ALL nodes of the loaded
-     * graph (never the filtered subset), so sizes stay stable while filtering.
-     *
-     * The metric is decided once per load: pagerank if any node has one, else
-     * eigenvector, else full-graph degree. Scores are min-max scaled and mapped with
-     * a square root to NODE_SIZE_MIN..NODE_SIZE_MAX so hubs stand out without
-     * flattening everything else. The displayed size is base size * size multiplier.
+     * Pick the starting size metric for a freshly loaded graph and derive base sizes.
+     * pagerank if any node has one, else eigenvector, else full-graph degree; the user
+     * can change it afterwards with setSizeMetric().
      */
     computeNodeSizes() {
         this.baseSizes = new Map();
-        if (this.graph.order === 0) {
-            this.sizeMetric = 'degree';
-            return;
-        }
+        this.betweennessScores = null;
+        this.metricData = {
+            eigenvector: this.graph.someNode((node, attributes) => Number.isFinite(attributes.eigenvector)),
+            pagerank: this.graph.someNode((node, attributes) => Number.isFinite(attributes.pagerank))
+        };
+        this.sizeMetric = this.metricData.pagerank ? 'pagerank'
+            : this.metricData.eigenvector ? 'eigenvector'
+            : 'degree';
+        this.applySizeMetric();
+    }
 
-        const hasValue = key => this.graph.someNode((node, attributes) => Number.isFinite(attributes[key]));
-        this.sizeMetric = hasValue('pagerank') ? 'pagerank' : hasValue('eigenvector') ? 'eigenvector' : 'degree';
+    /**
+     * Derive every node's base size from the current metric, over ALL nodes of the
+     * loaded graph (never the filtered subset), so sizes stay stable while filtering.
+     *
+     * Scores are min-max scaled and mapped with a square root to
+     * NODE_SIZE_MIN..NODE_SIZE_MAX so hubs stand out without flattening everything
+     * else. The displayed size is base size * size multiplier.
+     */
+    applySizeMetric() {
+        this.baseSizes = new Map();
+        if (this.graph.order === 0) return;
 
-        // Eigenvector values are L2-normalised within each connected component, so a
-        // 2-node component scores 0.707 per node, which would outrank the hub of a
-        // 1000-node giant component (typically ~0.1). Weighting by sqrt(n_c / N) gives
-        // each component a share of the squared mass proportional to its node count.
-        // Nodes without a `component` attribute share one group, so a file with none
-        // is a single component and the weight is 1. pagerank and degree are not scaled.
-        const componentCounts = new Map();
-        const componentOf = attributes => (Number.isFinite(attributes.component) ? attributes.component : null);
-        if (this.sizeMetric === 'eigenvector') {
-            this.graph.forEachNode((node, attributes) => {
-                const component = componentOf(attributes);
-                componentCounts.set(component, (componentCounts.get(component) || 0) + 1);
-            });
-        }
-
-        const scores = new Map();
+        const scores = this.scoreNodes(this.sizeMetric);
         let min = Infinity;
         let max = -Infinity;
-        this.graph.forEachNode((node, attributes) => {
-            let score;
-            if (this.sizeMetric === 'degree') {
-                score = this.graph.degree(node);
-            } else if (this.sizeMetric === 'pagerank') {
-                score = Number.isFinite(attributes.pagerank) ? attributes.pagerank : 0;
-            } else {
-                const eigenvector = Number.isFinite(attributes.eigenvector) ? attributes.eigenvector : 0;
-                score = eigenvector * Math.sqrt(componentCounts.get(componentOf(attributes)) / this.graph.order);
-            }
-            scores.set(node, score);
+        scores.forEach(score => {
             min = Math.min(min, score);
             max = Math.max(max, score);
         });
@@ -433,6 +470,71 @@ class GraphologyNetworkVisualizer {
             const t = max > min ? (score - min) / (max - min) : 0;
             this.baseSizes.set(node, NODE_SIZE_MIN + (NODE_SIZE_MAX - NODE_SIZE_MIN) * Math.sqrt(t));
         });
+    }
+
+    /**
+     * Raw centrality score of every node for one metric: Map(node -> number)
+     */
+    scoreNodes(metric) {
+        const scores = new Map();
+
+        if (metric === 'betweenness') {
+            return this.getBetweennessScores();
+        }
+
+        if (metric === 'eigenvector') {
+            // Eigenvector values are L2-normalised within each connected component, so a
+            // 2-node component scores 0.707 per node, which would outrank the hub of a
+            // 1000-node giant component (typically ~0.1). Weighting by sqrt(n_c / N)
+            // gives each component a share of the squared mass proportional to its node
+            // count. Nodes without a `component` attribute share one group, so a file
+            // with none is a single component and the weight is 1.
+            const componentOf = attributes => (Number.isFinite(attributes.component) ? attributes.component : null);
+            const componentCounts = new Map();
+            this.graph.forEachNode((node, attributes) => {
+                const component = componentOf(attributes);
+                componentCounts.set(component, (componentCounts.get(component) || 0) + 1);
+            });
+            this.graph.forEachNode((node, attributes) => {
+                const eigenvector = Number.isFinite(attributes.eigenvector) ? attributes.eigenvector : 0;
+                scores.set(node, eigenvector * Math.sqrt(componentCounts.get(componentOf(attributes)) / this.graph.order));
+            });
+            return scores;
+        }
+
+        // pagerank and degree are comparable across the whole graph and are not scaled
+        this.graph.forEachNode((node, attributes) => {
+            if (metric === 'pagerank') {
+                scores.set(node, Number.isFinite(attributes.pagerank) ? attributes.pagerank : 0);
+            } else {
+                scores.set(node, this.graph.degree(node));
+            }
+        });
+        return scores;
+    }
+
+    /**
+     * Betweenness centrality of every node, computed once per loaded graph. Unweighted
+     * on purpose: edge weights here are association strengths (higher = closer), while
+     * shortest-path code reads weights as distances.
+     */
+    getBetweennessScores() {
+        if (!this.betweennessScores) {
+            const betweenness = this.getBetweennessFunction();
+            if (!betweenness) throw new Error('Betweenness centrality is not available');
+            const raw = betweenness(this.graph, { getEdgeWeight: null, normalized: false });
+            this.betweennessScores = new Map(Object.entries(raw));
+        }
+        return this.betweennessScores;
+    }
+
+    /**
+     * graphology-metrics' betweenness function, or null if the library is missing it
+     */
+    getBetweennessFunction() {
+        if (typeof graphologyLibrary === 'undefined') return null;
+        const metrics = graphologyLibrary.metrics;
+        return (metrics && metrics.centrality && metrics.centrality.betweenness) || null;
     }
 
     /**
@@ -516,6 +618,8 @@ class GraphologyNetworkVisualizer {
             return;
         }
 
+        // The layout moves every node, so the positions saved by the label spread are stale
+        this.spreadSnapshot = null;
         this.layoutIsRunning = true;
         this.onLayoutStateChange(true);
         this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
@@ -647,10 +751,68 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * What drives node size in the loaded network: 'pagerank', 'eigenvector' or 'degree'
+     * What drives node size right now: an id from SIZE_METRICS
      */
     getSizeMetric() {
         return this.sizeMetric;
+    }
+
+    /**
+     * Whether a size metric can be used on the loaded network
+     */
+    isSizeMetricAvailable(id) {
+        switch (id) {
+            case 'degree':
+                return true;
+            case 'eigenvector':
+            case 'pagerank':
+                return this.metricData[id];
+            case 'betweenness':
+                return this.graph.order > 0 && this.getBetweennessFunction() !== null;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * The size metrics to offer for the loaded network: [{ id, label, description,
+     * available }] in display order. pagerank is left out unless the file has it;
+     * eigenvector is listed but unavailable when the file was never annotated.
+     */
+    getAvailableSizeMetrics() {
+        return SIZE_METRICS
+            .filter(metric => metric.id !== 'pagerank' || this.metricData.pagerank)
+            .map(metric => ({ ...metric, available: this.isSizeMetricAvailable(metric.id) }));
+    }
+
+    /**
+     * Whether switching to betweenness would block the page noticeably: a big graph
+     * whose scores are not computed yet
+     */
+    isBetweennessSlow() {
+        return !this.betweennessScores && this.graph.order > BETWEENNESS_SLOW_NODES;
+    }
+
+    /**
+     * Size nodes by another centrality. Returns true if applied; an unavailable metric
+     * (or a computation that fails) leaves the current one in place and returns false.
+     */
+    setSizeMetric(id) {
+        if (!this.isSizeMetricAvailable(id)) return false;
+
+        const previous = this.sizeMetric;
+        try {
+            this.sizeMetric = id;
+            this.applySizeMetric();
+        } catch (error) {
+            console.error(`Could not size nodes by ${id}:`, error);
+            this.sizeMetric = previous;
+            this.applySizeMetric();
+            return false;
+        }
+
+        this.renderer.refresh();
+        return true;
     }
 
     /**
@@ -729,6 +891,375 @@ class GraphologyNetworkVisualizer {
 
     getLabelsVisible() {
         return this.labelsVisible;
+    }
+
+    getAllLabels() {
+        return this.allLabels;
+    }
+
+    /**
+     * The result of the last spread (see spreadLabels), or null when all-labels is off
+     * or nothing had to move
+     */
+    getLabelSpreadInfo() {
+        return this.labelSpreadInfo;
+    }
+
+    /**
+     * Label every visible node regardless of zoom, and move nodes apart so the labels
+     * do not overlap at the current zoom. Switching it off again puts the nodes back
+     * (unless a layout has run since).
+     *
+     * Sigma normally draws one label per grid cell and only for nodes above a size
+     * threshold; `forceLabel` bypasses both. Labels have a fixed pixel size, so no
+     * placement can keep them apart at every zoom: zooming out brings overlaps back.
+     * Returns the spread info (null when switching off).
+     */
+    setAllLabels(enabled) {
+        enabled = Boolean(enabled);
+        if (enabled === this.allLabels) return this.labelSpreadInfo;
+
+        this.allLabels = enabled;
+        if (enabled) {
+            try {
+                this.labelSpreadInfo = this.spreadLabels();
+            } catch (error) {
+                // Labels stay on; the nodes just are not moved
+                console.error('Could not spread labels:', error);
+                this.labelSpreadInfo = null;
+            }
+        } else {
+            if (this.spreadSnapshot) {
+                this.setPositionsKeepingView(this.spreadSnapshot.positions, this.spreadSnapshot.sizeCorrection);
+                this.spreadSnapshot = null;
+            }
+            this.labelSpreadInfo = null;
+        }
+
+        this.renderer.refresh();
+        return this.labelSpreadInfo;
+    }
+
+    /**
+     * Push visible nodes apart until their label boxes stop overlapping, as seen at the
+     * current zoom. Works in screen pixels on one box per node (the node circle plus
+     * its label), in two stages:
+     *   1. inflate the whole layout about its centre by the smallest factor that leaves
+     *      only a few overlaps per node (inflateLabelBoxes). A dense core needs this:
+     *      wide, short boxes pushed pairwise would just stack into one tall column.
+     *   2. push the remaining overlapping pairs apart along the axis they overlap least
+     *      on, large nodes moving less than small ones (relaxLabelBoxes).
+     * Hidden nodes neither move nor count.
+     *
+     * Sigma scales every position to the graph's bounding box, so growing the layout
+     * would shrink it back on screen. After moving the nodes the camera is therefore set
+     * to the same centre and pixel scale as before (setPositionsKeepingView). Sigma also
+     * draws node circles at size / sqrt(camera ratio), so that zoom-in would balloon
+     * them; viewSizeCorrection cancels it and the boxes computed here stay valid.
+     */
+    spreadLabels() {
+        const started = performance.now();
+        const info = {
+            nodes: 0, moved: 0, overlapsBefore: 0, overlapsAfter: 0,
+            iterations: 0, converged: true, inflation: 1, widenedBy: 1, ms: 0
+        };
+
+        const nodes = [];
+        this.graph.forEachNode(node => {
+            if (!this.hiddenNodes.has(node)) nodes.push(node);
+        });
+        info.nodes = nodes.length;
+        if (nodes.length < 2) return info;
+
+        // Nothing is written to the graph until the end
+        const items = this.labelFootprints(nodes, this.createLabelMeasurer());
+        info.overlapsBefore = this.countLabelOverlaps(items);
+        info.inflation = this.inflateLabelBoxes(items);
+        const run = this.relaxLabelBoxes(items, started + LABEL_SPREAD_TIME_BUDGET_MS);
+        info.iterations = run.iterations;
+        info.converged = run.converged;
+        info.overlapsAfter = this.countLabelOverlaps(items);
+
+        // Write back only the nodes that actually moved
+        const moved = new Map();
+        const previous = new Map();
+        items.forEach(item => {
+            if (Math.hypot(item.x - item.x0, item.y - item.y0) < 0.5) return;
+            moved.set(item.node, this.renderer.viewportToGraph({ x: item.x, y: item.y }));
+            const { x, y } = this.graph.getNodeAttributes(item.node);
+            previous.set(item.node, { x, y });
+        });
+        info.moved = moved.size;
+
+        if (moved.size > 0) {
+            const startRatio = this.renderer.getCamera().getState().ratio;
+            const startBounds = this.graphBounds();
+            const newRatio = this.keepScaleRatio(startRatio, startBounds, this.graphBounds(moved));
+            const correction = this.viewSizeCorrection * Math.sqrt(newRatio / startRatio);
+
+            this.spreadSnapshot = { positions: previous, sizeCorrection: this.viewSizeCorrection };
+            const view = this.setPositionsKeepingView(moved, correction);
+            info.widenedBy = view.after.span / view.before.span;
+        }
+
+        info.ms = Math.round(performance.now() - started);
+        return info;
+    }
+
+    /**
+     * Stage 1 of the spread: scale the boxes' positions about their centroid, in place,
+     * by the smallest factor in [1, LABEL_SPREAD_MAX_INFLATION] that leaves at most
+     * LABEL_SPREAD_TARGET_OVERLAPS_PER_NODE overlapping pairs per node (binary search;
+     * the overlap count only falls as the factor grows). Returns the factor.
+     */
+    inflateLabelBoxes(items) {
+        const target = LABEL_SPREAD_TARGET_OVERLAPS_PER_NODE * items.length;
+        let centerX = 0;
+        let centerY = 0;
+        items.forEach(item => {
+            centerX += item.x0;
+            centerY += item.y0;
+        });
+        centerX /= items.length;
+        centerY /= items.length;
+
+        const overlapsAt = factor => {
+            items.forEach(item => {
+                item.x = centerX + (item.x0 - centerX) * factor;
+                item.y = centerY + (item.y0 - centerY) * factor;
+            });
+            return this.countLabelOverlaps(items);
+        };
+
+        if (overlapsAt(1) <= target) return 1;
+        let low = 1;
+        let high = LABEL_SPREAD_MAX_INFLATION;
+        if (overlapsAt(high) > target) return high;  // too dense for scaling alone; stage 2 does the rest
+        for (let step = 0; step < 12; step++) {
+            const middle = (low + high) / 2;
+            if (overlapsAt(middle) <= target) high = middle; else low = middle;
+        }
+        overlapsAt(high);
+        return high;
+    }
+
+    /**
+     * Canvas-based text width measurer using the font Sigma draws labels with
+     */
+    createLabelMeasurer() {
+        const context = document.createElement('canvas').getContext('2d');
+        const weight = this.renderer.getSetting('labelWeight');
+        const size = this.renderer.getSetting('labelSize');
+        const font = this.renderer.getSetting('labelFont');
+        context.font = `${weight} ${size}px ${font}`;
+
+        const widths = new Map();
+        return text => {
+            let width = widths.get(text);
+            if (width === undefined) {
+                width = context.measureText(text).width;
+                widths.set(text, width);
+            }
+            return width;
+        };
+    }
+
+    /**
+     * One box per node in viewport pixels at the current camera: x, y is the node
+     * centre (x0, y0 keep the starting point) and left/right/top/bottom are offsets of
+     * the box that covers the node circle plus its label.
+     */
+    labelFootprints(nodes, measure) {
+        const labelSize = this.renderer.getSetting('labelSize');
+        return nodes.map(node => {
+            const { x: graphX, y: graphY } = this.graph.getNodeAttributes(node);
+            const point = this.renderer.graphToViewport({ x: graphX, y: graphY });
+            const display = this.renderer.getNodeDisplayData(node);
+            const radius = this.renderer.scaleSize(display.size);
+            const labelWidth = display.label ? measure(display.label) : 0;
+            return {
+                node,
+                x: point.x, y: point.y, x0: point.x, y0: point.y,
+                left: -radius,
+                right: radius + (labelWidth > 0 ? LABEL_GAP + labelWidth : 0),
+                top: Math.min(-radius, labelSize / 3 - 0.75 * labelSize),
+                bottom: Math.max(radius, labelSize / 3 + 0.25 * labelSize),
+                mass: radius * radius + 1
+            };
+        });
+    }
+
+    /**
+     * Move overlapping boxes apart, in place, until none overlap or the iteration or
+     * time limit is hit. Boxes are bucketed in a grid sized to a typical box, so only
+     * boxes sharing a cell are compared. Returns { iterations, converged }.
+     */
+    relaxLabelBoxes(items, deadline) {
+        const count = items.length;
+        const pad = LABEL_PADDING / 2;
+        const percentile = values => values.sort((a, b) => a - b)[Math.floor(values.length * 0.75)];
+        const cellWidth = Math.max(20, percentile(items.map(item => item.right - item.left)) + LABEL_PADDING);
+        const cellHeight = Math.max(10, percentile(items.map(item => item.bottom - item.top)) + LABEL_PADDING);
+
+        let iterations = 0;
+        while (iterations < LABEL_SPREAD_MAX_ITERATIONS) {
+            const grid = new Map();
+            for (let i = 0; i < count; i++) {
+                const item = items[i];
+                const x0 = Math.floor((item.x + item.left - pad) / cellWidth);
+                const x1 = Math.floor((item.x + item.right + pad) / cellWidth);
+                const y0 = Math.floor((item.y + item.top - pad) / cellHeight);
+                const y1 = Math.floor((item.y + item.bottom + pad) / cellHeight);
+                for (let cx = x0; cx <= x1; cx++) {
+                    for (let cy = y0; cy <= y1; cy++) {
+                        // A hash collision only makes two boxes share a bucket, which
+                        // costs a comparison; the overlap test itself is exact
+                        const key = ((cx * 73856093) ^ (cy * 19349663)) | 0;
+                        const bucket = grid.get(key);
+                        if (bucket) bucket.push(i); else grid.set(key, [i]);
+                    }
+                }
+            }
+
+            let overlapping = 0;
+            grid.forEach(bucket => {
+                for (let a = 0; a < bucket.length; a++) {
+                    for (let b = a + 1; b < bucket.length; b++) {
+                        if (this.separateBoxes(items[bucket[a]], items[bucket[b]], pad)) overlapping++;
+                    }
+                }
+            });
+
+            if (overlapping === 0) return { iterations, converged: true };
+            iterations++;
+            if (performance.now() > deadline) return { iterations, converged: false };
+        }
+        return { iterations, converged: false };
+    }
+
+    /**
+     * If two boxes (each grown by `pad`) overlap, move them apart along the axis with
+     * the smaller overlap, splitting the move by mass so heavier nodes move less.
+     * Returns whether they overlapped.
+     */
+    separateBoxes(a, b, pad) {
+        const aLeft = a.x + a.left - pad, aRight = a.x + a.right + pad;
+        const aTop = a.y + a.top - pad, aBottom = a.y + a.bottom + pad;
+        const bLeft = b.x + b.left - pad, bRight = b.x + b.right + pad;
+        const bTop = b.y + b.top - pad, bBottom = b.y + b.bottom + pad;
+
+        const overlapX = Math.min(aRight, bRight) - Math.max(aLeft, bLeft);
+        const overlapY = Math.min(aBottom, bBottom) - Math.max(aTop, bTop);
+        if (overlapX <= LABEL_OVERLAP_TOLERANCE || overlapY <= LABEL_OVERLAP_TOLERANCE) return false;
+
+        const total = a.mass + b.mass;
+        const aShare = b.mass / total;
+        const bShare = a.mass / total;
+        if (overlapX <= overlapY) {
+            const direction = aLeft + aRight <= bLeft + bRight ? -1 : 1;  // a moves away from b
+            const distance = overlapX * LABEL_SPREAD_RELAXATION + 0.01;
+            a.x += direction * distance * aShare;
+            b.x -= direction * distance * bShare;
+        } else {
+            const direction = aTop + aBottom <= bTop + bBottom ? -1 : 1;
+            const distance = overlapY * LABEL_SPREAD_RELAXATION + 0.01;
+            a.y += direction * distance * aShare;
+            b.y -= direction * distance * bShare;
+        }
+        return true;
+    }
+
+    /**
+     * Number of overlapping box pairs (same padding rule as separateBoxes). Boxes are
+     * sorted by left edge so each one is only compared with those starting before its
+     * right edge.
+     */
+    countLabelOverlaps(items) {
+        const pad = LABEL_PADDING / 2;
+        const left = item => item.x + item.left - pad;
+        const right = item => item.x + item.right + pad;
+        const top = item => item.y + item.top - pad;
+        const bottom = item => item.y + item.bottom + pad;
+
+        const sorted = [...items].sort((a, b) => left(a) - left(b));
+        let overlaps = 0;
+        for (let i = 0; i < sorted.length; i++) {
+            for (let j = i + 1; j < sorted.length && left(sorted[j]) < right(sorted[i]) - LABEL_OVERLAP_TOLERANCE; j++) {
+                const overlapX = Math.min(right(sorted[i]), right(sorted[j])) - left(sorted[j]);
+                const overlapY = Math.min(bottom(sorted[i]), bottom(sorted[j]))
+                    - Math.max(top(sorted[i]), top(sorted[j]));
+                if (overlapX > LABEL_OVERLAP_TOLERANCE && overlapY > LABEL_OVERLAP_TOLERANCE) overlaps++;
+            }
+        }
+        return overlaps;
+    }
+
+    /**
+     * Bounding box of ALL nodes (the box Sigma scales to the screen): { minX, minY,
+     * width, height, span } where span is the longer side. `overrides` (Map node ->
+     * { x, y }) substitutes positions without touching the graph.
+     */
+    graphBounds(overrides = null) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        this.graph.forEachNode((node, attributes) => {
+            const point = (overrides && overrides.get(node)) || attributes;
+            minX = Math.min(minX, point.x);
+            maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y);
+            maxY = Math.max(maxY, point.y);
+        });
+        const width = maxX - minX || 1;
+        const height = maxY - minY || 1;
+        return { minX, minY, width, height, span: Math.max(width, height) };
+    }
+
+    /**
+     * Camera ratio that keeps the pixels-per-graph-unit of `from` bounds when the graph's
+     * bounds become `to`. Sigma draws one graph unit as
+     *     min(viewport width, height) * correction / (ratio * span)
+     * pixels (minus padding), where `correction` is getCorrectionRatio: 1 when the
+     * viewport and the graph are oriented differently, otherwise the smaller of the two
+     * aspect factors. The correction depends on the graph's aspect, so it has to be
+     * included when the bounding box changes shape.
+     */
+    keepScaleRatio(ratio, from, to) {
+        const { width, height } = this.renderer.getDimensions();
+        const correction = bounds => {
+            const viewportAspect = height / width;
+            const graphAspect = bounds.height / bounds.width;
+            if ((viewportAspect < 1 && graphAspect > 1) || (viewportAspect > 1 && graphAspect < 1)) return 1;
+            return Math.min(Math.max(graphAspect, 1 / graphAspect), Math.max(1 / viewportAspect, viewportAspect));
+        };
+        return ratio * (correction(to) / correction(from)) * (from.span / to.span);
+    }
+
+    /**
+     * Move nodes to new graph coordinates without changing what the user sees of the
+     * rest: Sigma rescales everything to the new bounding box, so the camera is
+     * adjusted to keep the same point at the centre of the viewport and the same
+     * pixels per graph unit. `sizeCorrection`, if given, replaces viewSizeCorrection in
+     * the same refresh. Returns the bounds before and after.
+     */
+    setPositionsKeepingView(positions, sizeCorrection = null) {
+        const camera = this.renderer.getCamera();
+        const { width, height } = this.renderer.getDimensions();
+        const center = this.renderer.viewportToGraph({ x: width / 2, y: height / 2 });
+        const ratio = camera.getState().ratio;
+        const before = this.graphBounds();
+
+        positions.forEach((point, node) => {
+            this.graph.mergeNodeAttributes(node, { x: point.x, y: point.y });
+        });
+        if (sizeCorrection !== null) this.viewSizeCorrection = sizeCorrection;
+        this.renderer.refresh();
+
+        const after = this.graphBounds();
+        camera.setState({
+            x: 0.5 + (center.x - (after.minX + after.width / 2)) / after.span,
+            y: 0.5 + (center.y - (after.minY + after.height / 2)) / after.span,
+            ratio: this.keepScaleRatio(ratio, before, after)
+        });
+        return { before, after };
     }
 
     /**

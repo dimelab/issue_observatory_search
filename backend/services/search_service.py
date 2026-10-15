@@ -9,13 +9,22 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
-from backend.core.search_engines.base import SearchResult as EngineSearchResult
+from backend.core.search_engines.base import (
+    SearchEngineBase,
+    SearchResult as EngineSearchResult,
+)
 from backend.core.search_engines.google_custom import GoogleCustomSearch
 from backend.core.search_engines.serper import SerperSearch
 from backend.models.search import SearchSession, SearchQuery, SearchResult
 from backend.models.user import User
 
 logger = logging.getLogger(__name__)
+
+# Fallbacks for sessions whose config lacks a value; same as SearchExecuteRequest.
+DEFAULT_SEARCH_ENGINE = "google_custom"
+DEFAULT_MAX_RESULTS = 10
+DEFAULT_LANGUAGE = "da"
+DEFAULT_COUNTRY = "dk"
 
 
 class SearchService:
@@ -134,7 +143,7 @@ class SearchService:
         self,
         session: SearchSession,
         query_text: str,
-        engine,
+        engine: SearchEngineBase,
         max_results: int,
         language: str,
         country: str,
@@ -169,11 +178,47 @@ class SearchService:
         self.db.add(query)
         await self.db.flush()
 
+        await self._run_query(
+            query=query,
+            engine=engine,
+            language=language,
+            country=country,
+            allowed_domains=allowed_domains,
+            seen_urls=seen_urls
+        )
+        return query
+
+    async def _run_query(
+        self,
+        query: SearchQuery,
+        engine: SearchEngineBase,
+        language: str,
+        country: str,
+        allowed_domains: Optional[list[str]],
+        seen_urls: set[str]
+    ) -> None:
+        """
+        Search for an existing query row and store its results.
+
+        A failing search is recorded on the query (status "failed" and
+        error_message) rather than raised, so one bad keyword does not stop
+        the others. Commits when done.
+
+        Args:
+            query: Query row, already in status "processing"
+            engine: Search engine instance
+            language: Language code (hl parameter)
+            country: Country code (gl parameter)
+            allowed_domains: Optional domain filter
+            seen_urls: URL hashes already stored for the session; updated
+        """
+        query_text = query.query_text
+
         try:
             # Execute search with language and country parameters
             results = await engine.search(
                 query=query_text,
-                max_results=max_results,
+                max_results=query.max_results,
                 hl=language,
                 gl=country
             )
@@ -205,7 +250,196 @@ class SearchService:
             query.executed_at = datetime.utcnow()
 
         await self.db.commit()
-        return query
+
+    async def add_queries(
+        self,
+        session: SearchSession,
+        queries: list[str]
+    ) -> tuple[list[SearchQuery], list[str]]:
+        """
+        Queue new keywords on an existing session without searching yet.
+
+        The queries take the session's search settings (engine, max results,
+        language, domain filter) and wait in status "pending" until
+        run_pending_queries is called. A keyword already in the session
+        (compared case-insensitively, ignoring extra whitespace) is skipped,
+        unless its earlier search failed, which makes adding it again a retry.
+
+        Args:
+            session: Session to extend, owned by the current user
+            queries: Cleaned keyword strings
+
+        Returns:
+            tuple: (queries created, keywords skipped as already present)
+        """
+        config = session.config or {}
+
+        result = await self.db.execute(
+            select(SearchQuery.query_text).where(
+                SearchQuery.session_id == session.id,
+                SearchQuery.status != "failed"
+            )
+        )
+        known = {self._query_key(text) for text in result.scalars()}
+
+        added: list[SearchQuery] = []
+        skipped: list[str] = []
+        for text in queries:
+            key = self._query_key(text)
+            if key in known:
+                skipped.append(text)
+                continue
+            known.add(key)
+
+            query = SearchQuery(
+                session_id=session.id,
+                query_text=text,
+                search_engine=config.get("search_engine", DEFAULT_SEARCH_ENGINE),
+                max_results=config.get("max_results", DEFAULT_MAX_RESULTS),
+                allowed_domains=config.get("allowed_domains"),
+                language=config.get("language"),
+                status="pending"
+            )
+            self.db.add(query)
+            added.append(query)
+
+        if added:
+            session.updated_at = datetime.utcnow()
+        await self.db.commit()
+
+        logger.info(
+            f"Queued {len(added)} keywords on session {session.id} "
+            f"({len(skipped)} already present)"
+        )
+        return added, skipped
+
+    async def count_pending_queries(self, session_id: int) -> int:
+        """
+        Count the keywords in a session that have not been searched yet.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            int: Number of queries in status "pending"
+        """
+        result = await self.db.execute(
+            select(func.count(SearchQuery.id)).where(
+                SearchQuery.session_id == session_id,
+                SearchQuery.status == "pending"
+            )
+        )
+        return result.scalar() or 0
+
+    async def run_pending_queries(self, session: SearchSession) -> dict[str, int]:
+        """
+        Search for the keywords queued on a session.
+
+        Results are deduplicated against everything the session already
+        holds, so a page found by an earlier keyword is not stored twice. The
+        queued queries are claimed (status "processing") before any search
+        runs, so a second click or request cannot search them again.
+
+        Args:
+            session: Session whose pending queries should run
+
+        Returns:
+            dict: queries_run, queries_failed, new_results, pending_count
+
+        Raises:
+            ValueError: If a pending query's search engine is not configured;
+                nothing is claimed in that case
+        """
+        config = session.config or {}
+        language = config.get("language", DEFAULT_LANGUAGE)
+        country = config.get("country", DEFAULT_COUNTRY)
+
+        # Build the engines first: a missing API key should leave the queries
+        # pending instead of marking them all failed.
+        engine_names = await self.db.execute(
+            select(SearchQuery.search_engine).where(
+                SearchQuery.session_id == session.id,
+                SearchQuery.status == "pending"
+            ).distinct()
+        )
+        engines = {
+            name: self._get_search_engine(name) for name in engine_names.scalars()
+        }
+
+        # Claim the pending queries.
+        claimed = await self.db.execute(
+            select(SearchQuery)
+            .where(
+                SearchQuery.session_id == session.id,
+                SearchQuery.status == "pending"
+            )
+            .order_by(SearchQuery.id)
+            .with_for_update()
+        )
+        pending = list(claimed.scalars().all())
+        for query in pending:
+            query.status = "processing"
+        await self.db.commit()
+
+        if pending:
+            seen_urls = await self._load_seen_urls(session.id)
+            for query in pending:
+                try:
+                    engine = engines.get(query.search_engine) or (
+                        self._get_search_engine(query.search_engine)
+                    )
+                except ValueError as e:
+                    query.status = "failed"
+                    query.error_message = str(e)
+                    query.executed_at = datetime.utcnow()
+                    await self.db.commit()
+                    continue
+
+                await self._run_query(
+                    query=query,
+                    engine=engine,
+                    language=language,
+                    country=country,
+                    allowed_domains=query.allowed_domains,
+                    seen_urls=seen_urls
+                )
+
+            session.updated_at = datetime.utcnow()
+            await self.db.commit()
+
+        logger.info(
+            f"Ran {len(pending)} pending queries for session {session.id}"
+        )
+        return {
+            "queries_run": len(pending),
+            "queries_failed": sum(1 for q in pending if q.status == "failed"),
+            "new_results": sum(q.result_count for q in pending),
+            "pending_count": await self.count_pending_queries(session.id),
+        }
+
+    async def _load_seen_urls(self, session_id: int) -> set[str]:
+        """
+        Hash every URL already stored for a session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            set[str]: URL hashes in the form _store_results compares against
+        """
+        result = await self.db.execute(
+            select(SearchResult.url)
+            .join(SearchQuery, SearchResult.query_id == SearchQuery.id)
+            .where(SearchQuery.session_id == session_id)
+        )
+        return {
+            self._hash_url(self._normalize_url(url)) for url in result.scalars()
+        }
+
+    @staticmethod
+    def _query_key(text: str) -> str:
+        """Normalize a keyword for duplicate checks (case, inner whitespace)."""
+        return " ".join(text.split()).casefold()
 
     async def _store_results(
         self,

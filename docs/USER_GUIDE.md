@@ -64,6 +64,22 @@ A step-by-step guide to performing a complete search, scrape, and network analys
    - Click **"View Results"** to expand and see the URLs found
 4. Wait until all queries show **"completed"** status
 
+### Step 2.3: Add Keywords Later
+
+You can extend a finished session with more keywords:
+
+1. On the **Search Session** page, click **"Add Keywords"** above the query list
+2. Enter one keyword or phrase per line and click **"Add"**
+   - The new keywords use the session's original settings (search engine, results per query, language)
+   - Keywords already in the session are skipped, and the dialog tells you which
+3. The new keywords appear in the list as **"pending"** (*Not searched yet*)
+4. Click **"Search N new keywords"**, which only appears while keywords are pending, and wait for it to finish
+   - Pages already found by an earlier keyword are not stored twice
+
+If a keyword's search fails, it is marked **"failed"**. Add it again to retry.
+
+Networks built earlier do not change; generate a new one to include the new keywords.
+
 ---
 
 ## 3. Generate Search Results Network
@@ -169,6 +185,11 @@ Now scrape the actual content from the URLs.
    - These social media sites often have CAPTCHAs
 
 3. Click **"Start Job"**
+
+**Pages scraped before are skipped.** A job only fetches URLs that no earlier job on the same
+search session has collected, so after adding keywords (Step 2.3) it scrapes just the new pages.
+Pages whose earlier attempt failed are tried again. If nothing is new, the job finishes at once
+with the message "No new URLs to scrape". The same applies to links followed at levels 2 and 3.
 
 ### Step 5.2: Monitor Scraping Progress
 

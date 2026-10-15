@@ -1,6 +1,7 @@
 """Celery tasks for network generation."""
+import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any, Coroutine, Dict, List, Optional, TypeVar
 from celery import Task
 
 from backend.celery_app import celery_app
@@ -10,6 +11,23 @@ from backend.schemas.network import NetworkBackboningConfig
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def _run_async(coro: Coroutine[Any, Any, T]) -> T:
+    """Run a coroutine to completion on a fresh event loop.
+
+    Celery tasks are sync. A pool child also runs the scraping and analysis
+    tasks, which close their loop when done, so asyncio.get_event_loop() can
+    return a closed loop ("Event loop is closed"). Every task gets its own.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 class NetworkGenerationTask(Task):
@@ -201,9 +219,7 @@ def generate_network_task(
                 raise
 
     # Run async function
-    import asyncio
-    loop = asyncio.get_event_loop()
-    result = loop.run_until_complete(_generate())
+    result = _run_async(_generate())
 
     return result
 
@@ -235,9 +251,7 @@ def cleanup_old_networks_task(days: Optional[int] = None) -> Dict[str, Any]:
             deleted_count = await service.cleanup_old_networks(days=days)
             return {"deleted_count": deleted_count, "days": days}
 
-    import asyncio
-    loop = asyncio.get_event_loop()
-    result = loop.run_until_complete(_cleanup())
+    result = _run_async(_cleanup())
 
     logger.info(f"Cleanup complete: deleted {result['deleted_count']} networks")
 
@@ -297,9 +311,7 @@ def recalculate_network_statistics_task(network_id: int) -> Dict[str, Any]:
 
             return stats
 
-    import asyncio
-    loop = asyncio.get_event_loop()
-    result = loop.run_until_complete(_recalculate())
+    result = _run_async(_recalculate())
 
     logger.info(f"Statistics recalculated for network {network_id}")
 

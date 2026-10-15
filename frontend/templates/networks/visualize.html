@@ -4,7 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
-<script src="/static/js/network-viz-graphology.js?v=6.0.0.5"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.6"></script>
 <style>
     #network-container {
         width: 100%;
@@ -86,6 +86,17 @@
                     🏷️ Labels
                 </button>
 
+                <!-- All labels: a label on every node, nodes spread so labels don't overlap -->
+                <button @click="toggleAllLabels()"
+                        :disabled="!labelsVisible"
+                        :aria-pressed="allLabels.toString()"
+                        :class="!labelsVisible ? 'opacity-50 cursor-not-allowed' : (allLabels ? 'bg-blue-50 text-blue-700 border-blue-300' : 'text-gray-700 hover:bg-gray-50')"
+                        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium transition-colors"
+                        id="all-labels-toggle"
+                        title="Label every node and move nodes apart so the labels don't overlap at the current zoom">
+                    🔠 All labels
+                </button>
+
                 <!-- Export -->
                 <div class="relative" @click.outside="exportOpen = false" @keydown.escape.window="exportOpen = false">
                     <button @click="exportOpen = !exportOpen"
@@ -127,6 +138,8 @@
                 </button>
             </div>
         </div>
+
+        <p x-show="allLabels && allLabelsNote" x-cloak id="all-labels-note" class="mt-2 text-xs text-gray-500" x-text="allLabelsNote"></p>
 
         <!-- Layout Settings Panel -->
         <div x-show="showLayoutSettings" x-cloak class="mt-4 bg-white rounded-lg shadow-md p-4">
@@ -239,6 +252,24 @@
                 <p x-show="colorMode === 'community'" x-cloak id="community-note" class="mt-2 text-xs text-gray-500">
                     Largest 10 communities coloured; others gray.
                 </p>
+            </div>
+
+            <!-- Size by -->
+            <div class="bg-white rounded-lg shadow-md p-4" x-show="sizeMetrics.length" x-cloak>
+                <h3 class="text-sm font-semibold text-gray-900 mb-3">Size by</h3>
+                <select id="size-metric"
+                        aria-label="Size nodes by"
+                        @change="changeSizeMetric($event.target.value)"
+                        :disabled="sizeBusy"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <template x-for="metric in sizeMetrics" :key="metric.id">
+                        <option :value="metric.id"
+                                :selected="metric.id === sizeMetric"
+                                :disabled="!metric.available"
+                                x-text="metric.available ? metric.label : metric.label + ' (no data)'"></option>
+                    </template>
+                </select>
+                <p id="size-metric-note" class="mt-2 text-xs text-gray-500" x-text="sizeBusy ? 'Computing...' : sizeMetricNote()"></p>
             </div>
 
             <!-- Filters -->
@@ -384,7 +415,11 @@
             nodeSizeMultiplier: 0.5,   // v6.0.0: Node size control (default 0.5x for large networks)
             colorMode: 'type',         // 'type' | 'community'
             labelsVisible: true,
-            sizeMetric: '',            // 'pagerank' | 'eigenvector' | 'degree', set after load
+            allLabels: false,          // label every node and spread them apart
+            allLabelsNote: '',
+            sizeMetric: '',            // an id from the visualizer's size metrics, set after load
+            sizeMetrics: [],           // [{ id, label, description, available }]
+            sizeBusy: false,           // betweenness is being computed
             hasCommunities: false,
             exportOpen: false,
             layoutSettings: {
@@ -436,9 +471,12 @@
                     await this.visualizer.loadFromGEXF(url);
                     this.availableTypes = this.visualizer.getNodeTypes();
                     this.sizeMetric = this.visualizer.getSizeMetric();
+                    this.sizeMetrics = this.visualizer.getAvailableSizeMetrics();
                     this.hasCommunities = this.visualizer.hasCommunities();
                     this.colorMode = this.visualizer.getColorMode();
                     this.labelsVisible = this.visualizer.getLabelsVisible();
+                    this.allLabels = this.visualizer.getAllLabels();
+                    this.allLabelsNote = '';
                     this.updateStats();
                 } catch (error) {
                     console.error('Failed to load network:', error);
@@ -494,18 +532,50 @@
                 }
             },
 
-            // One-line description of what drives node size (from the loaded data)
+            // One-line description of what drives node size, shown under the size slider
             sizeNote() {
                 switch (this.sizeMetric) {
                     case 'pagerank':
                         return 'Sized by PageRank';
                     case 'eigenvector':
                         return 'Sized by eigenvector centrality (scaled per component)';
+                    case 'betweenness':
+                        return 'Sized by betweenness centrality';
                     case 'degree':
-                        return 'Sized by degree (no centrality data in this network)';
+                        return 'Sized by degree';
                     default:
                         return '';
                 }
+            },
+
+            // What the selected size metric measures (or why it is unavailable)
+            sizeMetricNote() {
+                const metric = this.sizeMetrics.find(m => m.id === this.sizeMetric);
+                if (!metric) return '';
+                const missing = this.sizeMetrics.find(m => m.id === 'eigenvector' && !m.available);
+                return metric.description + (missing ? '. Eigenvector needs data: run scripts/annotate_networks.py.' : '');
+            },
+
+            // Size nodes by the metric picked in the dropdown. Betweenness is computed in
+            // the browser on first use, so the dropdown is locked while it runs.
+            async changeSizeMetric(id) {
+                if (!this.visualizer) return;
+                if (id === 'betweenness' && this.visualizer.isBetweennessSlow() &&
+                    !confirm('Betweenness centrality on a network this large can freeze the page for several seconds. Continue?')) {
+                    this.sizeMetric = this.visualizer.getSizeMetric();
+                    // x-model is not used on the select, so put the old choice back
+                    document.getElementById('size-metric').value = this.sizeMetric;
+                    return;
+                }
+
+                this.sizeBusy = true;
+                this.sizeMetric = id;
+                // Let "Computing..." paint before the synchronous computation starts
+                await new Promise(resolve => setTimeout(resolve, 50));
+                this.visualizer.setSizeMetric(id);
+                this.sizeMetric = this.visualizer.getSizeMetric();
+                this.sizeBusy = false;
+                document.getElementById('size-metric').value = this.sizeMetric;
             },
 
             // Colour by type or community; the radio already set colorMode, so revert
@@ -519,6 +589,27 @@
             toggleLabels() {
                 this.labelsVisible = !this.labelsVisible;
                 this.visualizer.setLabelsVisible(this.labelsVisible);
+            },
+
+            // Label every node; switching on also spreads the nodes (see the visualizer),
+            // switching off restores their positions
+            toggleAllLabels() {
+                if (!this.labelsVisible) return;
+                this.allLabels = !this.allLabels;
+                const info = this.visualizer.setAllLabels(this.allLabels);
+                this.allLabelsNote = this.allLabels ? this.describeLabelSpread(info) : '';
+            },
+
+            describeLabelSpread(info) {
+                if (!info || info.nodes < 2) return 'Every node is labelled.';
+                if (info.moved === 0) {
+                    return 'Every node is labelled. No labels overlap at this zoom, so no nodes were moved.';
+                }
+                let note = `Every node is labelled. Moved ${info.moved} of ${info.nodes} nodes apart so labels fit at this zoom`;
+                if (info.overlapsAfter > 0) {
+                    note += ` (${info.overlapsAfter} overlaps remain)`;
+                }
+                return note + '. Zooming out brings overlaps back; switch off to restore the positions.';
             },
 
             // Layout control methods
