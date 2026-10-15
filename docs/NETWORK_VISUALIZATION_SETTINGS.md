@@ -27,15 +27,16 @@ title (`node_type`, not the numeric id networkx writes) and cast by declared typ
 | `eigenvector` | "Size by" Eigenvector, the starting choice for undirected networks | Option is disabled; starts on Degree |
 | `pagerank` | "Size by" PageRank, offered only when present and then the starting choice | Option is not listed |
 | `component` | Per-component scaling of `eigenvector` sizes | Graph is treated as one component |
-| `community` | Community colour mode | Community option is disabled |
+| `community` | Community colour mode, starting point | Communities are detected in the browser when Community is picked |
 | `weight` (node) | Selected-node panel only | Not shown |
 
 `community`, `component`, `eigenvector` and `pagerank` are added by the backend when a
 network is generated; see "Node Metrics" in
 [NETWORK_GENERATION_GUIDE.md](NETWORK_GENERATION_GUIDE.md). Networks generated before that
-was added need `python scripts/annotate_networks.py`; until then they show degree-based
-sizes and Type colours only. Degree and betweenness need nothing from the file: the viewer
-computes them from the graph it loaded.
+was added need `python scripts/annotate_networks.py`; until then the Eigenvector size option
+is unavailable. Degree and betweenness need nothing from the file (the viewer computes them
+from the graph it loaded), and neither does Community colouring: without a `community`
+attribute the viewer detects communities itself.
 
 A GEXF attribute whose name collides with a field the renderer owns (`x`, `y`, `size`,
 `color`, `label`, `type`, `hidden`, `node_type`, ...) is stored as `attr_<name>` so it can
@@ -88,9 +89,38 @@ A **Colour by** switch in the sidebar:
   sides. Known types have fixed colours (`website` green, `keyword`/`noun` amber, `query`/
   `search` blue, `entity` purple, `topic`/`concept` pink); unknown types get a stable
   colour hashed from the type name.
-- **Community**: the 10 largest communities (rank 0-9, numbered by the backend, 0 =
-  largest) get the palette in `COMMUNITY_PALETTE`; every other community is gray
-  (`#CBD5E1`). Disabled when the file has no `community` attribute.
+- **Community**: the 10 largest communities (rank 0-9, 0 = largest) get the palette in
+  `COMMUNITY_PALETTE`; every other community is gray (`#CBD5E1`).
+
+**Where the communities come from.** The network file's `community` attribute is the Louvain
+result the backend computed on the whole network when it was generated. A filter changes which
+nodes you are looking at, so those communities may no longer describe it. Switching to
+**Community** therefore checks whether the visible nodes are the same as when the communities
+were last assigned:
+
+- *Unchanged*: nothing happens (switching Type and Community back and forth is free).
+- *Changed, and some filter is active*: Louvain runs in the browser on the visible nodes only
+  (`detectCommunities`), the same algorithm and seed (42) as the backend, with edge weights
+  (an edge with weight 0 or less is ignored). Communities are ranked by size so the palette
+  applies as before. It takes about 10 ms at 1,000 nodes and 120 ms at 30,000, so it is not
+  noticeable and has no button or progress indicator.
+- *Changed, and no filter is active*: the file's communities are put back as they were, not
+  recomputed, so clearing the filters returns exactly what the backend produced.
+- *No file communities at all*: the same browser run on the whole network, so old
+  networks need no `annotate_networks.py` run to be coloured by community.
+
+A line under the switch says which of these you are looking at ("From the network file" or
+"Detected in the browser (Louvain) on the 391 visible nodes: 14 communities"). If you change
+a filter while Community is already showing, the colours stay as they were and the line adds
+"Filters changed since: switch to Type and back to update." Hidden nodes have no community.
+If the visible nodes have no edges between them (for example only one side of a bipartite
+network), there are no communities and the nodes are drawn gray, and the line says so.
+
+On the 391-node view of the 835-node test network, the browser's communities score a
+modularity of 0.3842, against 0.3836 for NetworkX's Louvain on the same subgraph and 0.3357
+for the unfiltered communities restricted to it. The selected-node panel shows the community
+currently drawn. Downloads (GEXF, GraphML, JSON) are the stored network, so they still carry
+only the backend's communities.
 
 ### Labels
 
@@ -152,6 +182,7 @@ The settings panel (gear icon):
 | Setting | Effect |
 |---------|--------|
 | **Strong gravity** (on by default) | Gravity that grows with distance from the centre |
+| **Stop automatically when settled** (on by default) | Stops the layout once nodes barely move; untick to run until you press Stop |
 | **Gravity** (0-5) | With strong gravity: higher is more compact and even, lower is looser with small groups further out |
 | **Scaling** (1-50) | Repulsion between nodes: higher spreads the layout out relative to gravity |
 | **Edge Weight** (0-2) | How much edge weights pull connected nodes together |
@@ -190,6 +221,26 @@ inflate the box. Classic gravity can also trigger it, usually earlier, while its
 still slowly collapsing. The slow-down parameter is set to `1 + ln(nodes)`
 (ForceAtlas2's own recommendation) when a network loads; it has no slider.
 
+**Does stopping early cost quality?** Measured with layout-quality metrics that do not
+depend on scale (835-node network with the backend's communities; 2,612-node network without;
+five random starting layouts per setting, mean and spread):
+
+- *Running longer changes nothing measurable.* Stress (how well on-screen distances match graph
+  distances), neighbourhood preservation and community separation are flat from about 450 to
+  5,000 iterations; the improvement happens in the first few hundred. With a slow-down of 1 the
+  layout never settles (still jittering after 13,000 iterations) and is no better for it.
+- *Strong gravity keeps the structure.* At the same slow-down, strong and classic gravity give the
+  same stress (0.19) and the same community separation (0.776 vs 0.776).
+- *One small real cost.* The automatic slow-down `1 + ln(nodes)` that lets the layout settle gives
+  somewhat less clear communities on the 835-node network than a slow-down of 1 (within/between
+  community distance 0.87 vs 0.77, lower is clearer) and about 12% lower neighbourhood
+  preservation. On the 2,612-node network it is much better locally (neighbour preservation 0.20
+  vs 0.09 at slow-down 1), which is why it is the default.
+- LinLog mode, which ForceAtlas2 offers to emphasise clusters, was worse on all of these
+  measures here (stress 0.23-0.33 instead of 0.19) and is not used.
+
+If you would rather watch it keep adjusting, untick **Stop automatically when settled**.
+
 Large networks still run on the main thread: the page stays usable because work per frame is
 bounded, but it is not instant.
 
@@ -219,8 +270,10 @@ The **Export** menu offers:
 - **Undirected only.** The graph is created undirected, so a duplicate edge is skipped (with
   one console warning) and its weight is lost. No network builder produces directed graphs
   today, so PageRank is computed by the backend only if one ever does.
-- **Metrics do not follow filters.** Communities and centralities are computed once on the
-  whole network at generation time, not recomputed for the filtered subgraph.
+- **Centralities do not follow filters.** Eigenvector and PageRank come from the file and
+  betweenness and degree are computed once on the whole network, so node sizes do not change
+  when you filter. Communities do follow filters, but only when you switch to Community (see
+  Colour).
 - **No node dragging.**
 - **Keyboard shortcuts.** `+`, `-` and `0` work through a handler in the page. The "Network"
   group in `keyboard-shortcuts.js` (including the "Toggle physics" entry) refers to

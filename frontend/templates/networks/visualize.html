@@ -4,7 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
-<script src="/static/js/network-viz-graphology.js?v=6.0.0.7"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.9"></script>
 <style>
     #network-container {
         width: 100%;
@@ -163,6 +163,22 @@
                     </p>
                 </div>
 
+                <!-- Auto stop -->
+                <div>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox"
+                               x-model="autoStopLayout"
+                               @change="visualizer.setAutoStopLayout(autoStopLayout)"
+                               id="autoStop"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm font-medium text-gray-700">Stop automatically when settled</span>
+                    </label>
+                    <p class="mt-1 ml-6 text-xs text-gray-500" id="auto-stop-note">
+                        Stops once the nodes barely move (usually a few hundred iterations). Running longer rarely
+                        changes the picture; untick it to keep the layout running until you press Stop.
+                    </p>
+                </div>
+
                 <!-- Gravity -->
                 <div>
                     <div class="flex justify-between items-center mb-1">
@@ -266,11 +282,10 @@
                     </label>
                 </div>
                 <p x-show="!hasCommunities" x-cloak id="no-community-note" class="mt-2 text-xs text-gray-500">
-                    No community data — run scripts/annotate_networks.py
+                    Community detection is not available (the graphology library did not load).
                 </p>
-                <p x-show="colorMode === 'community'" x-cloak id="community-note" class="mt-2 text-xs text-gray-500">
-                    Largest 10 communities coloured; others gray.
-                </p>
+                <p x-show="colorMode === 'community'" x-cloak id="community-note" class="mt-2 text-xs text-gray-500"
+                   x-text="communityNote()"></p>
             </div>
 
             <!-- Size by -->
@@ -440,6 +455,8 @@
             sizeMetrics: [],           // [{ id, label, description, available }]
             sizeBusy: false,           // betweenness is being computed
             hasCommunities: false,
+            communityInfo: null,       // { source: 'file' | 'browser', nodes, communities, ms }
+            communityStale: false,     // filters changed since the communities were assigned
             exportOpen: false,
             // slowDown is not here on purpose: the visualizer sets it from the graph size
             layoutSettings: {
@@ -451,6 +468,7 @@
                 strongGravityMode: true
             },
             layoutNote: '',            // e.g. "Layout settled after 340 iterations"
+            autoStopLayout: true,      // stop the layout by itself once it settled
             stats: {
                 nodes: 0,
                 edges: 0,
@@ -502,6 +520,7 @@
                     this.sizeMetrics = this.visualizer.getAvailableSizeMetrics();
                     this.hasCommunities = this.visualizer.hasCommunities();
                     this.colorMode = this.visualizer.getColorMode();
+                    this.refreshCommunityState();
                     this.labelsVisible = this.visualizer.getLabelsVisible();
                     this.allLabels = this.visualizer.getAllLabels();
                     this.allLabelsNote = '';
@@ -514,6 +533,32 @@
 
             updateStats() {
                 this.stats = this.visualizer.getStatistics();
+                this.refreshCommunityState();
+            },
+
+            // Where the drawn communities came from, and whether the filters changed since
+            refreshCommunityState() {
+                const info = this.visualizer.getCommunityInfo();
+                this.communityInfo = info ? { ...info } : null;
+                this.communityStale = this.visualizer.communitiesStale();
+            },
+
+            // Explanation under the colour switch. Switching to Community recomputes the
+            // communities for the visible nodes if the filters changed (no button needed).
+            communityNote() {
+                const info = this.communityInfo;
+                if (!info) return '';
+                let text;
+                if (info.source === 'file') {
+                    text = 'From the network file (computed when it was generated). ';
+                } else if (info.communities === 0) {
+                    text = 'No edges between the visible nodes, so there are no communities. ';
+                } else {
+                    text = `Detected in the browser (Louvain) on the ${info.nodes} visible nodes: ${info.communities} communities. `;
+                }
+                if (info.communities > 0) text += 'Largest 10 coloured; others gray.';
+                if (this.communityStale) text += ' Filters changed since: switch to Type and back to update.';
+                return text.trim();
             },
 
             search() {
@@ -607,11 +652,13 @@
             },
 
             // Colour by type or community; the radio already set colorMode, so revert
-            // if the visualizer refuses (community without community data)
+            // if the visualizer refuses. Switching to Community recomputes the communities
+            // when the filters changed since they were last assigned.
             applyColorMode() {
                 if (this.visualizer && !this.visualizer.setColorMode(this.colorMode)) {
                     this.colorMode = 'type';
                 }
+                if (this.visualizer) this.refreshCommunityState();
             },
 
             toggleLabels() {

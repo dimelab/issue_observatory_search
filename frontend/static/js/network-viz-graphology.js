@@ -110,6 +110,23 @@ const LABEL_SPREAD_MAX_INFLATION = 12;
 // stay below 2, where a push would overshoot as far as it corrects.
 const LABEL_SPREAD_RELAXATION = 1.8;
 
+// Louvain community detection in the browser (see detectCommunities). Same seed as the
+// backend (backend/core/networks/metrics.py), so a given network gives a stable result.
+const COMMUNITY_SEED = 42;
+
+/**
+ * Small seeded random number generator (mulberry32) for repeatable Louvain runs
+ */
+function seededRandom(seed) {
+    let state = seed >>> 0;
+    return () => {
+        state = (state + 0x6D2B79F5) | 0;
+        let t = Math.imul(state ^ (state >>> 15), 1 | state);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
 // Sigma canvas layers composited by exportAsPNG, bottom to top (hover/mouse layers
 // are interaction overlays and stay out of the export)
 const EXPORT_CANVAS_LAYERS = ['edges', 'edgeLabels', 'nodes', 'labels'];
@@ -146,6 +163,7 @@ class GraphologyNetworkVisualizer {
         this.renderer = null;
         this.layoutIsRunning = false;
         this.layoutAnimationFrame = null;
+        this.autoStopLayout = true;       // stop by itself once the layout settled (see LAYOUT_SETTLE_MOVE)
         this.layoutIterations = 0;        // iterations run since the layout was last started
         this.layoutItersPerFrame = 1;     // adapts to what fits in the frame budget
         this.layoutRenderMs = 0;          // recent redraw time (moving average)
@@ -211,7 +229,13 @@ class GraphologyNetworkVisualizer {
         this.baseSizes = new Map();
         this.metricData = { eigenvector: false, pagerank: false };  // which file metrics exist
         this.betweennessScores = null;  // Map(node -> raw score), computed on first use
-        this.communityData = false;  // any node with a numeric community
+        this.communityData = false;  // any node with a numeric community in the file
+        // `community` on the nodes is what is drawn. It starts as the file's communities
+        // (kept in fileCommunities) and is replaced by a browser Louvain run on the visible
+        // nodes when the colours are asked for after the filters changed.
+        this.fileCommunities = new Map();   // node -> community rank from the file
+        this.communityHidden = new Set();   // hidden nodes when `community` was last assigned
+        this.communityInfo = null;          // { source: 'file' | 'browser', nodes, communities, ms }
 
         // Initialize
         this.init();
@@ -441,17 +465,26 @@ class GraphologyNetworkVisualizer {
         this.spreadSnapshot = null;
         this.viewSizeCorrection = 1;
 
-        // Community colouring needs data; fall back to type colours if a reload lost it
-        this.communityData = this.graph.someNode((node, attributes) => Number.isFinite(attributes.community));
-        if (!this.communityData) {
-            this.colorMode = 'type';
-        }
+        // Communities from the file cover the whole graph; remember them so clearing the
+        // filters can bring them back after a browser run on a filtered view
+        this.fileCommunities = new Map();
+        this.graph.forEachNode((node, attributes) => {
+            if (Number.isFinite(attributes.community)) this.fileCommunities.set(node, attributes.community);
+        });
+        this.communityData = this.fileCommunities.size > 0;
+        this.communityHidden = new Set();
+        this.communityInfo = this.communityData ? this.describeFileCommunities() : null;
 
         // Layout is not run on load - the user starts it with the Start Layout button
         // (matches some2net behaviour)
 
         // Re-apply current filters to the new graph and render
         this.applyFilters();
+
+        // Colouring by community needs communities for the current view
+        if (this.colorMode === 'community' && !(this.hasCommunities() && this.ensureCommunities())) {
+            this.colorMode = 'type';
+        }
 
         // Fit to viewport
         setTimeout(() => this.fit(), 100);
@@ -697,7 +730,7 @@ class GraphologyNetworkVisualizer {
                 this.layoutItersPerFrame = Math.max(1, Math.floor(iterations * budget / layoutMs));
             }
 
-            if (this.layoutHasSettled(iterations)) {
+            if (this.autoStopLayout && this.layoutHasSettled(iterations)) {
                 const result = {
                     iterations: this.layoutIterations,
                     ms: Math.round(performance.now() - this.layoutStartedAt)
@@ -774,6 +807,18 @@ class GraphologyNetworkVisualizer {
             this.layoutIsRunning = false;
             this.onLayoutStateChange(false);
         }
+    }
+
+    /**
+     * Whether the layout stops by itself once it has settled. Off: it runs until stopped.
+     */
+    setAutoStopLayout(enabled) {
+        this.autoStopLayout = Boolean(enabled);
+        this.settleWindow = null;  // start measuring afresh
+    }
+
+    getAutoStopLayout() {
+        return this.autoStopLayout;
     }
 
     /**
@@ -937,10 +982,11 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Whether any node carries a numeric community (needed for community colouring)
+     * Whether community colouring is available: the file carries communities, or the
+     * graphology library can detect them
      */
     hasCommunities() {
-        return this.communityData;
+        return this.graph.order > 0 && (this.communityData || this.getLouvainFunction() !== null);
     }
 
     getColorMode() {
@@ -949,12 +995,14 @@ class GraphologyNetworkVisualizer {
 
     /**
      * Colour nodes by 'type' (the implied bipartite node types) or 'community'.
-     * Returns true if applied; 'community' without community data stays on 'type'
-     * and returns false.
+     * Switching to 'community' first makes sure the communities fit the nodes that are
+     * visible now (ensureCommunities), which may run Louvain on them.
+     * Returns true if applied; 'community' without any way to get communities stays on
+     * 'type' and returns false.
      */
     setColorMode(mode) {
         if (mode !== 'type' && mode !== 'community') return false;
-        if (mode === 'community' && !this.communityData) {
+        if (mode === 'community' && !(this.hasCommunities() && this.ensureCommunities())) {
             this.colorMode = 'type';
             return false;
         }
@@ -962,6 +1010,145 @@ class GraphologyNetworkVisualizer {
         this.colorMode = mode;
         this.renderer.refresh();
         return true;
+    }
+
+    /**
+     * Where the drawn communities came from and what they cover:
+     * { source: 'file' | 'browser', nodes, communities, ms }, or null if none yet.
+     * `communities` is 0 when the visible nodes have no edges between them.
+     */
+    getCommunityInfo() {
+        return this.communityInfo;
+    }
+
+    /**
+     * Whether the drawn communities no longer match the visible nodes, because filters
+     * changed after they were assigned (or none were assigned yet)
+     */
+    communitiesStale() {
+        if (!this.communityInfo) return true;
+        if (this.hiddenNodes.size !== this.communityHidden.size) return true;
+        for (const node of this.hiddenNodes) {
+            if (!this.communityHidden.has(node)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Make the drawn communities fit the visible nodes. Does nothing if they already do
+     * (so switching colours back and forth is free). With no filters active the file's
+     * communities are restored when it has them; otherwise Louvain runs on the visible
+     * nodes. Returns false if no communities could be produced.
+     */
+    ensureCommunities() {
+        if (!this.communitiesStale()) return true;
+        if (this.communityData && this.hiddenNodes.size === 0) {
+            this.restoreFileCommunities();
+            return true;
+        }
+        return this.detectCommunities();
+    }
+
+    /**
+     * louvain function of graphology-library, or null if the library is missing it
+     */
+    getLouvainFunction() {
+        return (typeof graphologyLibrary !== 'undefined' && graphologyLibrary.communitiesLouvain) || null;
+    }
+
+    /**
+     * Run Louvain on the visible nodes and draw the result. The graph is the subgraph of
+     * the visible nodes; an edge counts with its weight, and one with a weight of 0 or
+     * less is ignored, as in the backend. Communities are ranked by size (0 = largest,
+     * ties broken by the smallest node id) so the palette applies as usual, and nodes
+     * that are hidden keep no community. About 10 ms at 1,000 nodes, 120 ms at 30,000.
+     * Visible nodes with no edges between them have no communities at all (Louvain would
+     * only return one per node). Returns false, leaving everything as it was, on failure.
+     */
+    detectCommunities() {
+        const louvain = this.getLouvainFunction();
+        if (!louvain) return false;
+
+        try {
+            const started = performance.now();
+            const subgraph = new graphology.Graph({ type: 'undirected' });
+            this.graph.forEachNode(node => {
+                if (!this.hiddenNodes.has(node)) subgraph.addNode(node);
+            });
+            this.graph.forEachEdge((edge, attributes, source, target) => {
+                if (!subgraph.hasNode(source) || !subgraph.hasNode(target)) return;
+                const weight = Number.isFinite(attributes.weight) ? attributes.weight : 1;
+                if (weight > 0) subgraph.mergeEdge(source, target, { weight });
+            });
+
+            const rankOf = new Map();
+            let communityCount = 0;
+            if (subgraph.size > 0) {
+                const partition = louvain(subgraph, {
+                    getEdgeWeight: 'weight',
+                    rng: seededRandom(COMMUNITY_SEED)
+                });
+                const groups = new Map();
+                subgraph.forEachNode(node => {
+                    if (!groups.has(partition[node])) groups.set(partition[node], []);
+                    groups.get(partition[node]).push(node);
+                });
+                const smallest = group => group.reduce((min, node) => (node < min ? node : min));
+                const ordered = [...groups.values()].sort((a, b) =>
+                    b.length - a.length || (smallest(a) < smallest(b) ? -1 : 1));
+                ordered.forEach((group, rank) => group.forEach(node => rankOf.set(node, rank)));
+                communityCount = ordered.length;
+            }
+
+            this.assignCommunities(node => rankOf.get(node));
+            this.communityHidden = new Set(this.hiddenNodes);
+            this.communityInfo = {
+                source: 'browser',
+                nodes: subgraph.order,
+                communities: communityCount,
+                ms: Math.round(performance.now() - started)
+            };
+            this.refreshSelection();
+            return true;
+        } catch (error) {
+            console.error('Could not detect communities:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Put the communities from the file back on the nodes (no filters active)
+     */
+    restoreFileCommunities() {
+        this.assignCommunities(node => this.fileCommunities.get(node));
+        this.communityHidden = new Set();
+        this.communityInfo = this.describeFileCommunities();
+        this.refreshSelection();
+    }
+
+    /**
+     * Write `community` on every node from rankFor(node); undefined removes it
+     */
+    assignCommunities(rankFor) {
+        this.graph.forEachNode(node => {
+            const rank = rankFor(node);
+            if (rank === undefined) {
+                if (this.graph.hasNodeAttribute(node, 'community')) {
+                    this.graph.removeNodeAttribute(node, 'community');
+                }
+            } else {
+                this.graph.setNodeAttribute(node, 'community', rank);
+            }
+        });
+    }
+
+    describeFileCommunities() {
+        return {
+            source: 'file',
+            nodes: this.fileCommunities.size,
+            communities: new Set(this.fileCommunities.values()).size,
+            ms: 0
+        };
     }
 
     /**
@@ -975,8 +1162,9 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Community legend data over all nodes (not the filtered subset): one entry per
-     * coloured rank that occurs, plus an 'other' entry for the grayed-out rest
+     * Community legend data over the nodes that have a community (all of them for the
+     * file's communities, the visible ones after a browser run): one entry per coloured
+     * rank that occurs, plus an 'other' entry for ranks beyond the palette.
      * Returns [{ community, color, count }]; community is the rank or 'other'.
      */
     getCommunityLegend() {
@@ -984,7 +1172,8 @@ class GraphologyNetworkVisualizer {
         let other = 0;
         this.graph.forEachNode((node, attributes) => {
             const community = attributes.community;
-            if (Number.isInteger(community) && community >= 0 && community < COMMUNITY_PALETTE.length) {
+            if (!Number.isInteger(community)) return;
+            if (community >= 0 && community < COMMUNITY_PALETTE.length) {
                 counts[community]++;
             } else {
                 other++;
