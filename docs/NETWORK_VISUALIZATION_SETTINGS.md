@@ -142,11 +142,56 @@ degree) describes the visible subgraph.
 
 ### Layout
 
-**Start Layout** / **Stop Layout** run ForceAtlas2, one synchronous iteration per animation
-frame on the main thread, on the full graph (including nodes hidden by filters). The
-settings panel (gear icon) sets gravity (0-5), scaling (1-50), edge weight influence (0-2)
-and Barnes-Hut; changes apply on the next frame without restarting. Large networks will
-make the page less responsive while the layout runs.
+**Start Layout** runs ForceAtlas2 on the full graph (including nodes hidden by filters),
+on the main thread, and stops by itself once the nodes stop moving. **Stop Layout** ends it
+sooner. A network without stored positions starts on a circle, so the first thing to do is
+press Start Layout.
+
+The settings panel (gear icon):
+
+| Setting | Effect |
+|---------|--------|
+| **Strong gravity** (on by default) | Gravity that grows with distance from the centre |
+| **Gravity** (0-5) | With strong gravity: higher is more compact and even, lower is looser with small groups further out |
+| **Scaling** (1-50) | Repulsion between nodes: higher spreads the layout out relative to gravity |
+| **Edge Weight** (0-2) | How much edge weights pull connected nodes together |
+| **Barnes-Hut** | Approximates repulsion; faster on large graphs |
+
+Changes apply to a running layout on the next frame. If the layout is stopped, including
+after it settled, moving a setting starts it again, so a slider always shows its effect.
+
+**Why strong gravity is the default.** Classic ForceAtlas2 gravity has the same strength
+everywhere. A big dense core then pushes small, sparsely connected subgraphs far out, they
+keep drifting, and because the view fits the whole drawing the core ends up as a tight blob
+with overlapping nodes (the Gravity and Scaling sliders barely change this). Strong gravity
+keeps those subgraphs near, the layout settles, and the core fills the view. On the test
+networks, with the same number of iterations as the old defaults (classic gravity):
+
+| Network | Core's share of the drawing, old to new | Overlapping node pairs at the fit view, old to new |
+|---------|-----------------------------------------|----------------------------------------------------|
+| 835 nodes (real pipeline output) | 0.22 to 0.86 | 7,690 to 66 |
+| 2,612 nodes (dense core plus 160 small subgraphs, synthetic) | 0.37 to 0.85 | 641,874 to 4,708 |
+
+(Core share is the square root of the area of the 5th-95th percentile box over the area of
+the bounding box; 1 means the core uses the whole drawing.) Untick **Strong gravity** to get
+classic ForceAtlas2 back.
+
+**Speed.** Each animation frame runs as many ForceAtlas2 iterations as fit in 10 ms (more
+when drawing is slow, up to 40 ms, never more than 40 iterations) instead of one, then
+redraws once. The count adapts as it goes. The 835-node network settled after about 450
+iterations and the 2,612-node one after about 330 (software WebGL, which draws much slower
+than a GPU: 1.6 s and 4.8 s; the old loop took 4.6 s and 33 s for the same graphs).
+
+**Settling.** Every 50 iterations the layout compares node positions with 50 iterations
+earlier. It stops when nodes moved on average less than 0.05% of the core's size per
+iteration (`LAYOUT_SETTLE_MOVE`) and at least 100 iterations have run. The core's size is
+the 5th-95th percentile range of the positions, not the bounding box, because outliers
+inflate the box. Classic gravity can also trigger it, usually earlier, while its core is
+still slowly collapsing. The slow-down parameter is set to `1 + ln(nodes)`
+(ForceAtlas2's own recommendation) when a network loads; it has no slider.
+
+Large networks still run on the main thread: the page stays usable because work per frame is
+bounded, but it is not instant.
 
 ### Selection and navigation
 
@@ -185,6 +230,6 @@ The **Export** menu offers:
   spreading was also run on synthetic box sets of up to 3,000 nodes (uniform, clustered, all
   on one point): it stayed finite everywhere, converged up to about 2,500 nodes, and at 3,000
   nodes in one screen it hit the 2.5 s limit with about 99.5% of the overlaps removed. Not
-  tested: real networks over about 1,000 nodes, Firefox, Safari, mobile, or the live page
-  behind login.
+  tested: real networks over about 1,000 nodes (the 2,612-node network above is synthetic),
+  Firefox, Safari, mobile, or the live page behind login.
 - Sigma is pinned at 2.4.0 and graphology at 0.25.4; moving to Sigma 3 is a separate task.

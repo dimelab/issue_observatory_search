@@ -294,6 +294,8 @@ async def scraping_job(
                 "delay_max": job.delay_max,
                 "respect_robots_txt": job.respect_robots_txt,
                 "total_urls": job.total_urls or 0,
+                "already_collected": job.urls_already_collected or 0,
+                "skipped_count": job.urls_skipped or 0,
                 "scraped_count": scraped_count,
                 "success_count": success_count,
                 "failed_count": failed_count,

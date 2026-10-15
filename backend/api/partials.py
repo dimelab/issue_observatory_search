@@ -223,6 +223,8 @@ async def get_jobs_partial(
             "status": job.status or "pending",
             "depth": job.depth,
             "total_urls": job.total_urls or 0,
+            "already_collected": job.urls_already_collected or 0,
+            "skipped_count": job.urls_skipped or 0,
             "scraped_count": scraped_count,
             "success_count": success_count,
             "failed_count": failed_count,

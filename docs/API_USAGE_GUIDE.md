@@ -312,8 +312,9 @@ curl -X POST http://localhost:8000/api/scraping/jobs \
 
 A job only scrapes URLs that no other job on the same session has collected successfully
 (earlier failures are retried), at every depth. If every URL was collected before, the job
-completes immediately with `error_message` "No new URLs to scrape: ...". There is no option
-to force a full re-scrape yet.
+completes immediately with `error_message` "No new URLs to scrape: ...". The number left out
+is stored in `urls_already_collected` (it is not part of `total_urls`; `urls_skipped` is for
+excluded domains, robots.txt and duplicates). There is no option to force a full re-scrape yet.
 
 ### Start Scraping Job
 
@@ -341,6 +342,7 @@ curl -X GET http://localhost:8000/api/scraping/jobs/1 \
   "urls_scraped": 23,
   "urls_failed": 2,
   "urls_skipped": 5,
+  "urls_already_collected": 120,
   "progress_percentage": 51.1,
   "started_at": "2025-01-15T11:01:00",
   "domain_filter": "same_domain",
