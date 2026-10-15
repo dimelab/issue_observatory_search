@@ -89,8 +89,33 @@
 
     <!-- Queries Section -->
     <div class="bg-white rounded-lg shadow-md">
-        <div class="p-6 border-b border-gray-200">
+        <div class="p-6 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-xl font-bold text-gray-900">Search Queries</h2>
+            {% if session.status != 'processing' %}
+            <div class="flex items-center gap-3">
+                <button
+                    type="button"
+                    onclick="showAddKeywordsModal()"
+                    class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                    <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Add Keywords
+                </button>
+                {% if session.pending_query_count > 0 %}
+                <button
+                    id="run-pending-btn"
+                    type="button"
+                    onclick="runPendingKeywords()"
+                    class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 transition-colors">
+                    <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <span id="run-pending-label">Search {{ session.pending_query_count }} new {{ 'keyword' if session.pending_query_count == 1 else 'keywords' }}</span>
+                </button>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
         <div class="divide-y divide-gray-200">
             {% if queries %}
@@ -100,7 +125,11 @@
                         <div class="flex-1">
                             <h3 class="text-lg font-medium text-gray-900">{{ query.query_text }}</h3>
                             <div class="mt-2 flex items-center space-x-4 text-sm text-gray-500">
+                                {% if query.status == 'pending' %}
+                                <span>Not searched yet</span>
+                                {% else %}
                                 <span>{{ query.result_count or 0 }} results</span>
+                                {% endif %}
                                 <span class="px-2 py-1 rounded-full text-xs font-medium
                                     {% if query.status == 'completed' %}bg-green-100 text-green-800
                                     {% elif query.status == 'processing' %}bg-yellow-100 text-yellow-800
@@ -110,6 +139,7 @@
                                 </span>
                             </div>
                         </div>
+                        {% if query.status != 'pending' %}
                         <button
                             onclick="toggleQueryResults('query-{{ query.id }}')"
                             class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
@@ -118,6 +148,7 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                             </svg>
                         </button>
+                        {% endif %}
                     </div>
 
                     <!-- Results for this query (collapsible) -->
@@ -144,6 +175,43 @@
                 </div>
             {% endif %}
         </div>
+    </div>
+</div>
+
+<!-- Add Keywords Modal -->
+<div id="add-keywords-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Add Keywords</h3>
+        <p class="text-sm text-gray-500 mb-4">
+            Added keywords use this session's search settings. They are searched when you
+            press the search button, not when you add them.
+        </p>
+        <form id="add-keywords-form" class="space-y-4">
+            <div>
+                <label for="new_keywords" class="block text-sm font-medium text-gray-700">Keywords</label>
+                <textarea
+                    id="new_keywords"
+                    rows="5"
+                    placeholder="One keyword or phrase per line"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"></textarea>
+            </div>
+            <p id="add-keywords-message" class="hidden text-sm"></p>
+            <div class="flex items-center justify-end space-x-3 pt-2">
+                <button
+                    type="button"
+                    id="add-keywords-cancel"
+                    onclick="hideAddKeywordsModal()"
+                    class="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    id="add-keywords-submit"
+                    class="px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 transition-colors">
+                    Add
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -181,6 +249,10 @@
                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs"></textarea>
                 <p class="mt-1 text-xs text-gray-500">Enter one domain per line. These domains will be skipped during scraping.</p>
             </div>
+            <p class="text-xs text-gray-500">
+                Pages already collected by earlier scraping jobs on this session are skipped,
+                so a job started after adding keywords only fetches the new pages.
+            </p>
             <div class="flex items-center justify-end space-x-3 pt-4">
                 <button
                     type="button"
@@ -212,6 +284,106 @@ function showScrapeModal() {
 
 function hideScrapeModal() {
     document.getElementById('scrape-modal').classList.add('hidden');
+}
+
+function showAddKeywordsModal() {
+    document.getElementById('add-keywords-modal').classList.remove('hidden');
+    document.getElementById('new_keywords').focus();
+}
+
+function hideAddKeywordsModal() {
+    document.getElementById('add-keywords-modal').classList.add('hidden');
+}
+
+function showAddKeywordsMessage(text, isError) {
+    const el = document.getElementById('add-keywords-message');
+    el.textContent = text;
+    el.className = 'text-sm ' + (isError ? 'text-red-600' : 'text-green-700');
+}
+
+// Pull a readable message out of a FastAPI error response
+async function errorDetail(response, fallback) {
+    try {
+        const body = await response.json();
+        if (typeof body.detail === 'string') return body.detail;
+        if (body.error && body.error.message) return body.error.message;
+    } catch (e) { /* not JSON */ }
+    return fallback;
+}
+
+// Queue the typed keywords on this session (no search happens yet)
+document.getElementById('add-keywords-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const queries = document.getElementById('new_keywords').value
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    if (queries.length === 0) {
+        showAddKeywordsMessage('Enter at least one keyword.', true);
+        return;
+    }
+
+    const submit = document.getElementById('add-keywords-submit');
+    submit.disabled = true;
+    try {
+        const response = await fetch('/api/search/session/{{ session.id }}/queries', {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ queries: queries })
+        });
+        if (!response.ok) {
+            showAddKeywordsMessage(
+                await errorDetail(response, 'Could not add the keywords.'), true);
+            submit.disabled = false;
+            return;
+        }
+        const data = await response.json();
+        if (data.skipped.length === 0) {
+            window.location.reload();
+            return;
+        }
+        // Some keywords were already here: say so before reloading
+        showAddKeywordsMessage(
+            data.message + '. Already in this session: ' + data.skipped.join(', '),
+            data.added.length === 0);
+        document.getElementById('add-keywords-submit').classList.add('hidden');
+        const cancel = document.getElementById('add-keywords-cancel');
+        cancel.textContent = 'Close';
+        cancel.onclick = function() { window.location.reload(); };
+    } catch (error) {
+        showAddKeywordsMessage('An error occurred.', true);
+        submit.disabled = false;
+    }
+});
+
+document.getElementById('add-keywords-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideAddKeywordsModal();
+    }
+});
+
+// Search for the keywords that were added but not yet collected
+async function runPendingKeywords() {
+    const button = document.getElementById('run-pending-btn');
+    const label = document.getElementById('run-pending-label');
+    button.disabled = true;
+    label.textContent = 'Searching...';
+    try {
+        const response = await fetch('/api/search/session/{{ session.id }}/queries/run', {
+            method: 'POST',
+            headers: authHeaders()
+        });
+        if (response.ok) {
+            window.location.reload();
+            return;
+        }
+        alert(await errorDetail(response, 'Failed to search for the new keywords'));
+    } catch (error) {
+        alert('An error occurred');
+    }
+    button.disabled = false;
+    label.textContent = 'Search {{ session.pending_query_count }} new {{ "keyword" if session.pending_query_count == 1 else "keywords" }}';
 }
 
 // Handle scraping form submission

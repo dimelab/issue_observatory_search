@@ -1,6 +1,6 @@
 # Network Viewer Reference
 
-**Last updated**: October 14, 2026
+**Last updated**: October 15, 2026
 **Code**: `frontend/static/js/network-viz-graphology.js` (class `GraphologyNetworkVisualizer`) and
 `frontend/templates/networks/visualize.html` (Alpine component `networkViewer`)
 **Based on**: some2net visualization patterns (https://github.com/dimelab/some2net)
@@ -24,8 +24,8 @@ title (`node_type`, not the numeric id networkx writes) and cast by declared typ
 | Node attribute | Used for | If missing |
 |----------------|----------|------------|
 | `node_type` | Colour (Type mode), type filter, selected-node panel | Node is type `default` |
-| `eigenvector` | Node size (undirected networks) | Falls back to degree |
-| `pagerank` | Node size (directed networks), takes priority over `eigenvector` | Falls back to `eigenvector`, then degree |
+| `eigenvector` | "Size by" Eigenvector, the starting choice for undirected networks | Option is disabled; starts on Degree |
+| `pagerank` | "Size by" PageRank, offered only when present and then the starting choice | Option is not listed |
 | `component` | Per-component scaling of `eigenvector` sizes | Graph is treated as one component |
 | `community` | Community colour mode | Community option is disabled |
 | `weight` (node) | Selected-node panel only | Not shown |
@@ -34,7 +34,8 @@ title (`node_type`, not the numeric id networkx writes) and cast by declared typ
 network is generated; see "Node Metrics" in
 [NETWORK_GENERATION_GUIDE.md](NETWORK_GENERATION_GUIDE.md). Networks generated before that
 was added need `python scripts/annotate_networks.py`; until then they show degree-based
-sizes and Type colours only.
+sizes and Type colours only. Degree and betweenness need nothing from the file: the viewer
+computes them from the graph it loaded.
 
 A GEXF attribute whose name collides with a field the renderer owns (`x`, `y`, `size`,
 `color`, `label`, `type`, `hidden`, `node_type`, ...) is stored as `attr_<name>` so it can
@@ -47,21 +48,36 @@ is laid out until the user presses Start Layout.
 
 ### Node size
 
-Size comes from a centrality score, chosen once per file: `pagerank` if any node has it,
-else `eigenvector`, else full-graph degree. The panel under the Node Size slider says which
-one is in use.
+The **Size by** card in the sidebar picks what node size is based on:
+
+| Option | Meaning | Where it comes from |
+|--------|---------|---------------------|
+| Degree | Number of connections (all nodes of the file, not the filtered view) | Computed in the browser |
+| Eigenvector | Linked to well-connected nodes | The file's `eigenvector` attribute; disabled ("no data") without it |
+| Betweenness | Lies on many shortest paths between other nodes | Computed in the browser on first use, then kept |
+| PageRank | Share of random-walk visits | The file's `pagerank` attribute; only listed when present (directed networks) |
+
+The viewer starts on PageRank if the file has it, else Eigenvector, else Degree, and the
+text under the dropdown says what the current choice measures.
 
 - **Eigenvector is scaled per component.** The backend stores eigenvector values
   normalised within each connected component, so a 2-node component scores 0.707 per node,
   more than the giant component's hub. The viewer multiplies each score by
   `sqrt(n_component / N)`, which gives each component a share of squared mass proportional
-  to its node count. PageRank and degree are already comparable across the graph and get no
-  scaling.
+  to its node count. The other metrics are comparable across the graph and get no scaling.
+- **Betweenness is unweighted.** Edge weights here are association strengths (higher =
+  closer), while shortest-path code reads a weight as a distance, so weights are ignored.
+  It is exact (it matches NetworkX `betweenness_centrality` on the 835-node test network)
+  but runs on the main thread and grows with the square of the node count: about 0.1 s at
+  800 nodes, 1 s at 3,400 and 3.4 s at 6,000. Above 8,000 nodes the page asks before
+  computing it (`BETWEENNESS_SLOW_NODES`). Betweenness is very skewed (most nodes score
+  near zero), so on the test network the typical node is about 3 px and a few bridges stand
+  out; Eigenvector gives about 4 px.
 - Scores map to a base size of 5-30 px on a square-root scale (`NODE_SIZE_MIN` and
   `NODE_SIZE_MAX` at the top of the JS file).
 - The **Node Size** slider (ForceAtlas2 settings panel) is a global multiplier, 0.1x-3.0x,
-  default 0.5x. At the default, a typical node is about 4 px and the largest hub about
-  15 px on the 835-node test network.
+  default 0.5x. At the default, a typical eigenvector-sized node is about 4 px and the
+  largest hub about 15 px on the 835-node test network.
 - Sizes are computed over all nodes at load, so filters never change them.
 
 ### Colour
@@ -80,6 +96,34 @@ A **Colour by** switch in the sidebar:
 
 The **Labels** toolbar button turns node labels on or off (default on). Sigma still decides
 which labels fit at the current zoom, so a dense network shows few labels until zoomed in.
+
+The **All labels** button (enabled while Labels is on) labels every visible node whatever the
+zoom, and moves nodes apart so the labels do not overlap at the zoom you are at when you press
+it. Sigma's `forceLabel` bypasses its one-label-per-cell rule and size threshold; the moving
+is done by the viewer:
+
+1. Every node gets a box in screen pixels (its circle plus its label as Sigma draws it).
+2. The whole layout is scaled up about its centre by the smallest factor (at most 12x) that
+   leaves no more than 1.5 overlapping pairs per node. A dense core needs this: pushing wide,
+   short boxes apart pair by pair only stacks them into one tall column.
+3. The overlaps that remain are pushed apart locally, large nodes moving less than small
+   ones, until none are left or 2.5 seconds are up.
+
+Because Sigma scales positions to the bounding box, the camera is then set to the same centre
+and pixels-per-unit as before, and node circles keep their on-screen size. So you see the
+same part of the network, with every label readable, and the network now extends well beyond
+the screen: pan to see the rest. On the 835-node test network the layout grew 9x and the
+spread took about 0.45 s; the note under the toolbar reports how many nodes moved and how
+many overlaps remain.
+
+- **Zooming out brings overlaps back.** Labels have a fixed pixel size, so no placement can
+  keep them apart at every zoom. Turn the button off and on again to spread for the zoom you
+  are at now.
+- **Off restores the positions** (and the view) from before, unless a layout has run since,
+  in which case the nodes stay where the layout left them.
+- Hidden (filtered-out) nodes are neither moved nor counted. After changing filters, turn the
+  button off and on again to include the newly visible nodes.
+- PNG export includes the labels as drawn.
 
 ### Filters
 
@@ -136,7 +180,11 @@ The **Export** menu offers:
 - **Keyboard shortcuts.** `+`, `-` and `0` work through a handler in the page. The "Network"
   group in `keyboard-shortcuts.js` (including the "Toggle physics" entry) refers to
   `window.currentNetworkVisualizer`, which nothing sets, so those entries do nothing.
-- **Testing.** Verified in headless Chrome with software WebGL against a 14-node and an
-  835-node network, driven by throwaway harnesses (not part of the repository). Not tested:
-  networks over about 1,000 nodes, Firefox, Safari, mobile, or the live page behind login.
+- **Testing.** Verified in headless Chrome with software WebGL against a 9-node and an
+  835-node network, driven by throwaway harnesses (not part of the repository). The label
+  spreading was also run on synthetic box sets of up to 3,000 nodes (uniform, clustered, all
+  on one point): it stayed finite everywhere, converged up to about 2,500 nodes, and at 3,000
+  nodes in one screen it hit the 2.5 s limit with about 99.5% of the overlaps removed. Not
+  tested: real networks over about 1,000 nodes, Firefox, Safari, mobile, or the live page
+  behind login.
 - Sigma is pinned at 2.4.0 and graphology at 0.25.4; moving to Sigma 3 is a separate task.

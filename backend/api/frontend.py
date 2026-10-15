@@ -186,6 +186,9 @@ async def search_session(
                 "created_at": session.created_at,
                 "updated_at": session.updated_at,
                 "query_count": query_count,
+                "pending_query_count": sum(
+                    1 for q in query_data if q["status"] == "pending"
+                ),
                 "result_count": result_count,
                 "unique_domains": unique_domains,
             },
