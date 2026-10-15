@@ -308,8 +308,9 @@ The run summary (community count, modularity, size metric, fallbacks) is
 stored in `network_metadata.analysis` and returned by
 `GET /api/networks/{id}`.
 
-**Networks generated before this feature** have none of these attributes
-(the viewer falls back to node type and degree). Add them with:
+**Networks generated before this feature** have none of these attributes. The viewer then
+sizes nodes by degree or betweenness (it computes both itself), detects communities in the
+browser when you colour by community, and has no Eigenvector option. Add the attributes with:
 
 ```bash
 python scripts/annotate_networks.py --dry-run   # preview

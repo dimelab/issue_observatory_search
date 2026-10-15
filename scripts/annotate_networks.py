@@ -2,9 +2,10 @@
 """Add community and centrality attributes to already-generated networks.
 
 Networks generated before the metrics step have no ``community``,
-``component`` or ``eigenvector`` attributes, so the viewer falls back to node
-type and degree. This reads each stored GEXF file, annotates it, writes it
-back and records the analysis summary in the network's metadata.
+``component`` or ``eigenvector`` attributes, so the viewer has no Eigenvector
+size option (it detects communities itself, in the browser). This reads each
+stored GEXF file, annotates it, writes it back and records the analysis
+summary in the network's metadata, so downloads carry the metrics too.
 
 Usage:
     python scripts/annotate_networks.py --dry-run     # show what would change
