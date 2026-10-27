@@ -262,6 +262,11 @@ The **Export** menu offers:
 - **GEXF (Gephi)**, **GraphML**, **Edge list (CSV)**, **JSON**: plain links to
   `/api/networks/{id}/download?format=...`. These are the stored network, not the filtered
   view. GEXF, GraphML and JSON include the node metrics; the CSV edge list has edges only.
+  In the CSV (and the `edgelist` format) the websites are always in the Source column and
+  the other node type (keywords, entities or search queries) in the Target column, so a
+  column never mixes the two. Networks that connect nodes of one type only (projections)
+  keep NetworkX's order. GEXF, GraphML and JSON still list each edge's endpoints in
+  NetworkX order; the networks are undirected, so this does not change what they contain.
 
 ---
 

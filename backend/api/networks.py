@@ -225,7 +225,9 @@ async def download_network(
 
     Formats:
     - gexf: Gephi-compatible format (default)
-    - csv: Simple edge list with Source,Target,Weight columns
+    - csv: Simple edge list with Source,Target,Weight columns; websites are
+      always the Source and keywords/entities/search queries the Target
+    - edgelist: Tab-separated node IDs and edge attributes, same orientation
     - graphml: GraphML format
     - json: JSON node-link format
     """

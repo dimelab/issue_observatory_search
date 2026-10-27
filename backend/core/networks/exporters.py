@@ -2,13 +2,56 @@
 
 Export NetworkX graphs to various formats, primarily GEXF for Gephi.
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Iterator, Optional, Tuple
 import logging
 from pathlib import Path
 import networkx as nx
 from backend.core.networks.graph_utils import calculate_node_colors, calculate_node_sizes
 
 logger = logging.getLogger(__name__)
+
+# Node type that goes in the Source column of edge lists
+EDGE_SOURCE_TYPE = "website"
+
+
+def _edge_source_type(graph: nx.Graph) -> Optional[str]:
+    """
+    Pick the node type that goes in the Source column of an edge list.
+
+    Websites when the graph has any; otherwise, for a graph with exactly two
+    node types, the alphabetically first one (so the choice is stable).
+    Returns None when no side can be picked (one type only, or more than two).
+    """
+    types: set[str] = {
+        data["node_type"]
+        for _, data in graph.nodes(data=True)
+        if data.get("node_type") is not None
+    }
+    if EDGE_SOURCE_TYPE in types:
+        return EDGE_SOURCE_TYPE
+    if len(types) == 2:
+        return sorted(types)[0]
+    return None
+
+
+def oriented_edges(graph: nx.Graph) -> Iterator[Tuple[Any, Any, Dict[str, Any]]]:
+    """
+    Yield (source, target, data) for every edge, with the same side as source.
+
+    NetworkX returns the endpoints of an undirected edge in node-insertion
+    order, so websites and keywords end up in both columns. For a bipartite
+    network (search query / keyword / entity <-> website) this puts the
+    websites in the source column and the other type in the target column.
+    Edges between two nodes of the same type (projections) keep their order.
+    """
+    source_type = _edge_source_type(graph)
+    for u, v, data in graph.edges(data=True):
+        if source_type is not None:
+            u_is_source = graph.nodes[u].get("node_type") == source_type
+            v_is_source = graph.nodes[v].get("node_type") == source_type
+            if v_is_source and not u_is_source:
+                u, v = v, u
+        yield u, v, data
 
 
 def export_to_gexf(
@@ -225,6 +268,9 @@ def export_to_edgelist(
     """
     Export NetworkX graph to edge list format (TSV/CSV).
 
+    Websites are always in the first column and the other node type (keyword,
+    entity, search query) in the second; see ``oriented_edges``.
+
     Args:
         graph: NetworkX graph to export
         file_path: Output file path
@@ -240,8 +286,11 @@ def export_to_edgelist(
     output_path = Path(file_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Export to edge list
-    nx.write_edgelist(graph, str(output_path), data=data, delimiter=delimiter)
+    # A directed copy keeps the source/target order from oriented_edges
+    oriented = nx.DiGraph()
+    oriented.add_nodes_from(graph.nodes(data=True))
+    oriented.add_edges_from(oriented_edges(graph))
+    nx.write_edgelist(oriented, str(output_path), data=data, delimiter=delimiter)
 
     # Get file size
     file_size = output_path.stat().st_size
@@ -268,7 +317,9 @@ def export_to_csv(
     """
     Export NetworkX graph to simple CSV format with Source,Target,Weight columns.
 
-    Uses node labels if available, otherwise falls back to node IDs.
+    Uses node labels if available, otherwise falls back to node IDs. Websites
+    are always in the Source column and the other node type (keyword, entity,
+    search query) in the Target column; see ``oriented_edges``.
 
     Args:
         graph: NetworkX graph to export
@@ -290,7 +341,7 @@ def export_to_csv(
         writer = csv.writer(f)
         writer.writerow(['Source', 'Target', 'Weight'])
 
-        for u, v, data in graph.edges(data=True):
+        for u, v, data in oriented_edges(graph):
             # Get node labels (use label attribute if available, otherwise node ID)
             source_label = graph.nodes[u].get('label', u)
             target_label = graph.nodes[v].get('label', v)
