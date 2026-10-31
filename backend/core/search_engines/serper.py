@@ -1,16 +1,23 @@
 """Serper API search engine implementation."""
+import asyncio
+import contextlib
 import logging
+import random
+from collections.abc import Mapping
 from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
 
+from backend.core.concurrency import RedisLimits
 from backend.core.search_engines.base import (
     SearchEngineBase,
     SearchResult,
+    SearchEngineError,
     SearchEngineConfigError,
     SearchEngineAPIError,
     SearchEngineRateLimitError,
+    is_google_redirect,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,11 +36,33 @@ class SerperSearch(SearchEngineBase):
     - Fast response times
     - No search engine setup required
     - Supports pagination
+
+    Google returns result links beyond the top three as google.com/goto
+    redirects. Serper resolves the top three itself; the rest are resolved here
+    by sending each page of the search response to Serper's /resolve endpoint
+    (free, but it waits for Google, about 30 seconds right after a search). A
+    link that stays unresolved is dropped, never returned as if it were a page.
     """
 
     API_URL = "https://google.serper.dev/search"
+    RESOLVE_URL = "https://google.serper.dev/resolve"
+    RESOLVE_TIMEOUT = 120.0  # seconds per /resolve request; it waits for Google
+    RESOLVE_MAX_ATTEMPTS = 3  # /resolve answers with retryAfter while links are not ready
+    RESOLVE_MAX_WAIT = 60.0  # longest pause between two attempts, seconds
+    RATE_LIMIT_RETRIES = 3  # a 429 is waited out and asked again this many times
+    RATE_LIMIT_BASE_WAIT = 2.0  # first wait without a Retry-After header; doubles each time
 
-    def __init__(self, api_key: Optional[str] = None, timeout: int = 60, max_retries: int = 2, **kwargs) -> None:
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        timeout: int = 60,
+        max_retries: int = 2,
+        resolve_concurrency: int = 30,
+        base_url: Optional[str] = None,
+        limits: Optional[RedisLimits] = None,
+        rate_per_second: int = 40,
+        **kwargs
+    ) -> None:
         """
         Initialize Serper search engine.
 
@@ -41,11 +70,27 @@ class SerperSearch(SearchEngineBase):
             api_key: Serper API key
             timeout: Request timeout in seconds (default: 60 for complex queries)
             max_retries: Maximum number of retries on timeout (default: 2)
+            resolve_concurrency: How many /resolve requests may be in flight at
+                once across all searches made with this instance, and (with
+                limits) across all processes; each one waits about 30 seconds
+                for Google
+            base_url: Serper's address, if not the real one (for tests)
+            limits: Cross-process limits (Redis). Without them only this
+                instance's own limits apply
+            rate_per_second: Requests per second allowed across all processes
+                (with limits)
             **kwargs: Additional configuration
         """
         super().__init__(api_key, **kwargs)
         self.timeout = timeout
         self.max_retries = max_retries
+        self.resolve_concurrency = max(1, resolve_concurrency)
+        self._resolve_slots: Optional[asyncio.Semaphore] = None
+        self.limits_shared = limits
+        self.rate_per_second = rate_per_second
+        if base_url:
+            self.API_URL = base_url.rstrip("/") + "/search"
+            self.RESOLVE_URL = base_url.rstrip("/") + "/resolve"
 
         if not self.api_key:
             raise SearchEngineConfigError("Serper API key is required")
@@ -56,13 +101,14 @@ class SerperSearch(SearchEngineBase):
             connect=30.0,  # Generous for DNS + TLS handshake
             read=self.timeout,
             write=15.0,
-            pool=10.0
+            pool=120.0  # concurrency is limited by semaphores, not by waiting for a connection
         )
 
-        # Configure connection limits
+        # Configure connection limits: every /resolve in flight keeps its connection
+        # for about 30 seconds, and searches need connections beside them
         self.limits = httpx.Limits(
-            max_keepalive_connections=5,
-            max_connections=10,
+            max_keepalive_connections=20,
+            max_connections=max(100, self.resolve_concurrency + 50),
             keepalive_expiry=30.0
         )
 
@@ -189,7 +235,8 @@ class SerperSearch(SearchEngineBase):
         results_per_page = 10
         pages_needed = (max_results + results_per_page - 1) // results_per_page  # Ceiling division
 
-        all_results = []
+        pages: list[dict] = []  # raw search responses, resolved after the loop
+        fetched = 0  # results with a link and a title seen so far
         headers = {
             "X-API-KEY": self.api_key,
             "Content-Type": "application/json",
@@ -239,6 +286,7 @@ class SerperSearch(SearchEngineBase):
                             f"Attempt {retry_count + 1}/{self.max_retries + 1} for query: {query[:50]}... "
                             f"(POST to {self.API_URL})"
                         )
+                        await self._throttle()
                         response = await client.post(
                             self.API_URL,
                             json=payload,
@@ -274,7 +322,19 @@ class SerperSearch(SearchEngineBase):
                 if response is None:
                     raise SearchEngineAPIError("Failed to get response from Serper API")
 
-                # Handle rate limiting
+                # Handle rate limiting: wait and ask again before giving up
+                rate_limited = 0
+                while (
+                    response.status_code == 429
+                    and rate_limited < self.RATE_LIMIT_RETRIES
+                ):
+                    rate_limited += 1
+                    await self._wait_after_rate_limit(response, rate_limited, "search")
+                    await self._throttle()
+                    response = await client.post(
+                        self.API_URL, json=payload, headers=headers
+                    )
+
                 if response.status_code == 429:
                     error_msg = "Serper API rate limit exceeded"
                     logger.error(error_msg)
@@ -294,14 +354,30 @@ class SerperSearch(SearchEngineBase):
 
                 data = response.json()
 
-                # Parse results from this page
+                # Keep the raw page; links are resolved and parsed after the loop
                 organic_results = data.get("organic", [])
 
                 if not organic_results:
                     logger.info(f"No more results found on page {page} for query: {query}")
                     break  # No more results available
 
-                for result in organic_results:
+                pages.append(data)
+                fetched += sum(
+                    1 for result in organic_results
+                    if result.get("link") and result.get("title")
+                )
+
+                # Stop if we've reached max_results
+                if fetched >= max_results:
+                    break
+
+            # Beyond the top three, Google returns redirect links: resolve them
+            pages = await self._resolve_pages(pages, query)
+
+            all_results: list[SearchResult] = []
+            unresolved = 0
+            for data in pages:
+                for result in data.get("organic", []):
                     # Stop if we've reached max_results
                     if len(all_results) >= max_results:
                         break
@@ -315,6 +391,10 @@ class SerperSearch(SearchEngineBase):
                         logger.debug(f"Skipping result due to missing URL or title")
                         continue
 
+                    if is_google_redirect(url):
+                        unresolved += 1
+                        continue
+
                     search_result = SearchResult(
                         url=url,
                         title=title,
@@ -324,9 +404,14 @@ class SerperSearch(SearchEngineBase):
                     )
                     all_results.append(search_result)
 
-                # Stop if we've reached max_results
                 if len(all_results) >= max_results:
                     break
+
+            if unresolved:
+                logger.warning(
+                    f"Serper search for '{query}': dropped {unresolved} result(s) "
+                    f"whose Google redirect link could not be resolved"
+                )
 
             logger.info(
                 f"Serper search for '{query}' returned {len(all_results)} results "
@@ -347,10 +432,195 @@ class SerperSearch(SearchEngineBase):
             logger.error(error_msg)
             raise SearchEngineAPIError(error_msg)
 
+        except SearchEngineError:
+            raise  # already a clear message (rate limit, bad key, /resolve failure)
+
         except Exception as e:
             error_msg = f"Unexpected error during Serper search: {str(e)}"
             logger.error(error_msg)
             raise SearchEngineAPIError(error_msg)
+
+    @staticmethod
+    def _has_google_redirects(data: dict) -> bool:
+        """Whether a search response still has a Google redirect among its organic links."""
+        return any(
+            is_google_redirect(result.get("link", ""))
+            for result in data.get("organic", [])
+        )
+
+    async def _throttle(self) -> None:
+        """Wait for a place in the requests-per-second budget shared by all processes."""
+        if self.limits_shared is not None:
+            await self.limits_shared.throttle("serper", self.rate_per_second)
+
+    def _global_resolve_slot(self):
+        """
+        The limit on /resolve requests in flight across all processes (a no-op
+        without shared limits). Leased for longer than a request can take.
+        """
+        if self.limits_shared is None:
+            return contextlib.nullcontext()
+        return self.limits_shared.slot(
+            "serper-resolve",
+            self.resolve_concurrency,
+            lease=self.RESOLVE_TIMEOUT + 60.0,
+        )
+
+    def _get_resolve_slots(self) -> asyncio.Semaphore:
+        """The limit on /resolve requests in flight, created inside the running loop."""
+        if self._resolve_slots is None:
+            self._resolve_slots = asyncio.Semaphore(self.resolve_concurrency)
+        return self._resolve_slots
+
+    async def _wait_after_rate_limit(
+        self, response: httpx.Response, attempt: int, endpoint: str
+    ) -> None:
+        """
+        Pause after a 429 answer: the Retry-After header if there is one, else
+        a doubling wait with some jitter so parallel searches do not all ask
+        again at the same moment. Never longer than RESOLVE_MAX_WAIT.
+
+        Args:
+            response: The 429 response
+            attempt: Which retry this is, starting at 1
+            endpoint: Name of the endpoint, for the log
+        """
+        headers = getattr(response, "headers", None)
+        header = headers.get("Retry-After") if isinstance(headers, Mapping) else None
+        try:
+            wait = float(header)
+        except (TypeError, ValueError):
+            wait = (
+                self.RATE_LIMIT_BASE_WAIT
+                * 2 ** (attempt - 1)
+                * (1 + random.random() * 0.5)
+            )
+        wait = min(wait, self.RESOLVE_MAX_WAIT)
+        logger.warning(
+            f"Serper {endpoint}: rate limit hit, waiting {wait:.1f}s "
+            f"(retry {attempt}/{self.RATE_LIMIT_RETRIES})"
+        )
+        await asyncio.sleep(wait)
+
+    async def _resolve_pages(self, pages: list[dict], query: str) -> list[dict]:
+        """
+        Resolve the Google redirect links of every page that has some.
+
+        The pages are resolved at the same time, so a keyword costs one wait
+        for Google rather than one per page.
+
+        Args:
+            pages: Raw search responses
+            query: Query text, for log messages
+
+        Returns:
+            list[dict]: The pages, in order, with the real URLs filled in
+
+        Raises:
+            SearchEngineAPIError: If /resolve fails or times out
+            SearchEngineRateLimitError: If /resolve's rate limit is hit
+        """
+        wanted = [i for i, data in enumerate(pages) if self._has_google_redirects(data)]
+        if not wanted:
+            return pages
+
+        logger.info(
+            f"Serper search for '{query}': resolving Google links on "
+            f"{len(wanted)} of {len(pages)} page(s)"
+        )
+        outcomes = await asyncio.gather(
+            *(self._resolve_links(pages[i]) for i in wanted),
+            return_exceptions=True,
+        )
+        # Every page has finished by now; report the first failure, if any
+        resolved = list(pages)
+        for i, outcome in zip(wanted, outcomes):
+            if isinstance(outcome, BaseException):
+                raise outcome
+            resolved[i] = outcome
+        return resolved
+
+    async def _resolve_links(self, data: dict) -> dict:
+        """
+        Send one search response to Serper's /resolve and return it with the
+        real URLs.
+
+        While Google is not ready, some links stay redirects and the response
+        carries retryAfter (seconds); the answer is sent again after that wait,
+        up to RESOLVE_MAX_ATTEMPTS times. Links still unresolved after that are
+        left for the caller to drop.
+
+        Args:
+            data: Search response for one page
+
+        Returns:
+            dict: The response, with as many links resolved as Google allowed
+
+        Raises:
+            SearchEngineAPIError: If /resolve answers with an error or times out
+            SearchEngineRateLimitError: If /resolve's rate limit is hit
+        """
+        headers = {
+            "X-API-KEY": self.api_key,
+            "Content-Type": "application/json",
+        }
+        client = await self._get_client()
+        current: dict = data
+        not_ready = 0
+        rate_limited = 0
+
+        while True:
+            try:
+                async with self._get_resolve_slots(), self._global_resolve_slot():
+                    await self._throttle()
+                    response = await client.post(
+                        self.RESOLVE_URL,
+                        json=current,
+                        headers=headers,
+                        timeout=httpx.Timeout(self.RESOLVE_TIMEOUT, connect=30.0),
+                    )
+            except httpx.TimeoutException:
+                raise SearchEngineAPIError(
+                    f"Serper /resolve timed out after {self.RESOLVE_TIMEOUT:.0f}s "
+                    f"while resolving Google links"
+                )
+            except httpx.HTTPError as e:
+                raise SearchEngineAPIError(f"Serper /resolve HTTP error: {e}")
+
+            if response.status_code == 429:
+                rate_limited += 1
+                if rate_limited > self.RATE_LIMIT_RETRIES:
+                    raise SearchEngineRateLimitError("Serper /resolve rate limit exceeded")
+                await self._wait_after_rate_limit(response, rate_limited, "/resolve")
+                continue
+            if response.status_code == 401:
+                raise SearchEngineAPIError("Invalid Serper API key")
+            if response.status_code != 200:
+                logger.error(
+                    f"Serper /resolve failed with status {response.status_code}: "
+                    f"{response.text}"
+                )
+                raise SearchEngineAPIError(
+                    f"Serper /resolve failed with status {response.status_code}"
+                )
+
+            current = response.json()
+            retry_after = current.pop("retryAfter", None)
+            if not self._has_google_redirects(current):
+                return current
+            not_ready += 1
+            if not_ready >= self.RESOLVE_MAX_ATTEMPTS:
+                return current
+
+            try:
+                wait = min(float(retry_after), self.RESOLVE_MAX_WAIT)
+            except (TypeError, ValueError):
+                wait = 0.0
+            logger.info(
+                f"Serper /resolve: some links not ready, retrying in {wait:.0f}s "
+                f"(attempt {not_ready}/{self.RESOLVE_MAX_ATTEMPTS})"
+            )
+            await asyncio.sleep(wait)
 
     async def get_search_metadata(self, query: str) -> dict:
         """

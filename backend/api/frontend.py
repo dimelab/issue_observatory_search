@@ -7,9 +7,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import settings
 from backend.database import get_db
 from backend.models import User, SearchSession, SearchQuery, SearchResult, ScrapingJob
 from backend.models.website import WebsiteContent
+from backend.services.search_service import SearchService
 from backend.utils.dependencies import CurrentUser
 from sqlalchemy import select, func
 
@@ -103,6 +105,7 @@ async def new_search(
             "show_footer": True,
             "active_page": "search",
             "username": current_user.username,
+            "search_concurrency": settings.search_concurrency,
         }
     )
 
@@ -170,6 +173,9 @@ async def search_session(
             "result_count": count,
         })
 
+    # Where the search stands: the page shows it and keeps polling while it runs
+    progress = await SearchService(db, current_user).progress(session)
+
     return templates.TemplateResponse(
         "search/session.html",
         {
@@ -178,10 +184,19 @@ async def search_session(
             "show_footer": True,
             "active_page": "search",
             "username": current_user.username,
+            "search_concurrency": settings.search_concurrency,
+            "progress": {
+                key: progress[key]
+                for key in (
+                    "status", "error_message", "total", "pending", "processing",
+                    "completed", "failed", "results", "stale",
+                )
+            },
             "session": {
                 "id": session.id,
                 "name": session.name,
                 "status": session.status or "completed",
+                "busy": SearchService.is_busy(session),
                 "search_engine": session.config.get("search_engine", "unknown") if session.config else "unknown",
                 "created_at": session.created_at,
                 "updated_at": session.updated_at,

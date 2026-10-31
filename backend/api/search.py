@@ -3,7 +3,7 @@ import logging
 import math
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,6 +15,7 @@ from backend.schemas.search import (
     SearchAddQueriesResponse,
     SearchExecuteRequest,
     SearchExecuteResponse,
+    SearchProgressResponse,
     SearchRunPendingResponse,
     SearchSessionResponse,
     SearchSessionDetailResponse,
@@ -22,7 +23,7 @@ from backend.schemas.search import (
     SearchQueryResponse,
     SearchResultResponse,
 )
-from backend.services.search_service import SearchService
+from backend.services.search_service import SearchQueueError, SearchService
 from backend.utils.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -37,10 +38,12 @@ async def execute_search(
     current_user: CurrentUser,
 ) -> SearchExecuteResponse:
     """
-    Execute web searches for multiple keywords.
+    Queue web searches for multiple keywords.
 
-    Creates a search session and executes searches for all provided queries.
-    Results are deduplicated across queries within the session.
+    Creates a search session with the keywords and hands the searching to a
+    search worker, so this returns at once: follow the search with
+    GET /session/{id}/progress. Results are deduplicated across keywords within
+    the session.
 
     Args:
         request: Search execution request
@@ -48,40 +51,37 @@ async def execute_search(
         current_user: Current authenticated user
 
     Returns:
-        SearchExecuteResponse: Search session info and status
+        SearchExecuteResponse: Session id, the task id and status "pending"
+            (queued)
+
+    Raises:
+        HTTPException: 400 if the search engine is not configured, 503 if the
+            queue is not available
     """
     service = SearchService(db, current_user)
 
     try:
-        # Create search session
-        session = await service.create_session(
+        # A missing API key is reported now, not from a worker
+        service.ensure_engine_configured(request.search_engine)
+
+        session, count = await service.queue_session(
             name=request.session_name,
+            queries=request.queries,
             config={
                 "search_engine": request.search_engine,
                 "max_results": request.max_results,
                 "language": request.language,
                 "country": request.country,
                 "allowed_domains": request.allowed_domains,
-                "auto_scrape": request.auto_scrape,
-                "scrape_config": request.scrape_config.model_dump() if request.scrape_config else None,
             }
         )
-
-        # Execute searches
-        await service.execute_search(
-            session=session,
-            queries=request.queries,
-            search_engine=request.search_engine,
-            max_results=request.max_results,
-            language=request.language,
-            country=request.country,
-            allowed_domains=request.allowed_domains
-        )
+        task_id = await service.start(session)
 
         return SearchExecuteResponse(
             session_id=session.id,
+            task_id=task_id,
             status=session.status,
-            message=f"Search session created with {len(request.queries)} queries",
+            message=f"Search queued with {count} keywords",
             status_url=f"/api/search/session/{session.id}"
         )
 
@@ -90,7 +90,13 @@ async def execute_search(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except SearchQueueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
     except Exception as e:
+        logger.exception("Failed to queue search")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to execute search: {str(e)}"
@@ -270,6 +276,7 @@ async def get_session(
         description=session.description,
         status=session.status,
         config=session.config,
+        error_message=session.error_message,
         started_at=session.started_at,
         completed_at=session.completed_at,
         created_at=session.created_at,
@@ -336,27 +343,37 @@ async def add_session_queries(
 @router.post(
     "/session/{session_id}/queries/run",
     response_model=SearchRunPendingResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def run_session_queries(
     session_id: int,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ) -> SearchRunPendingResponse:
     """
-    Search for the keywords added to a session and not yet collected.
+    Queue the search of the keywords added to a session and not yet collected.
 
-    Runs inline, like POST /execute, so the request lasts as long as the
-    searches. Results are deduplicated against the session's existing
-    results. Calling it with nothing pending is a no-op.
+    Also starts a search again after it failed or its worker was lost. The
+    searching happens in a search worker: this returns at once, and the search
+    is followed with GET /session/{id}/progress. Results are deduplicated
+    against the session's existing results. With nothing to search it answers
+    200 and queues nothing.
 
     Args:
         session_id: Search session ID
+        response: Response, to set the status code
         db: Database session
         current_user: Current authenticated user
 
     Returns:
-        SearchRunPendingResponse: How many keywords ran, failed, and how many
-            new results were stored
+        SearchRunPendingResponse: The session status, task id and how many
+            keywords were queued
+
+    Raises:
+        HTTPException: 404 if the session is not found, 409 if it is already
+            being searched or waiting its turn, 400 if an engine is not
+            configured, 503 if the queue is not available
     """
     service = SearchService(db, current_user)
 
@@ -367,37 +384,89 @@ async def run_session_queries(
             detail="Search session not found"
         )
 
-    if session.status == "processing":
+    if service.is_busy(session):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This session is still running its search"
+            detail="This session is already being searched or waiting its turn"
+        )
+
+    queued = await service.count_unfinished_queries(session.id)
+    if queued == 0:
+        response.status_code = status.HTTP_200_OK
+        return SearchRunPendingResponse(
+            session_id=session.id,
+            status=session.status,
+            queued=0,
+            message="No new keywords to search"
         )
 
     try:
-        summary = await service.run_pending_queries(session)
+        await service.ensure_engines_configured(session)
+        # A person searching again starts the count of automatic restarts afresh
+        if session.config and "auto_restarts" in session.config:
+            session.config = {k: v for k, v in session.config.items() if k != "auto_restarts"}
+        task_id = await service.start(session)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except SearchQueueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
     except Exception:
-        logger.exception(f"Failed to run pending queries for session {session_id}")
+        logger.exception(f"Failed to queue the search of session {session_id}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to search for the new keywords"
         )
 
-    if summary["queries_run"] == 0:
-        message = "No new keywords to search"
-    else:
-        message = (
-            f"Searched {summary['queries_run']} keywords, "
-            f"{summary['new_results']} new results"
-        )
-        if summary["queries_failed"]:
-            message += f", {summary['queries_failed']} failed"
+    return SearchRunPendingResponse(
+        session_id=session.id,
+        task_id=task_id,
+        status=session.status,
+        queued=queued,
+        message=f"Search queued for {queued} keywords"
+    )
 
-    return SearchRunPendingResponse(session_id=session.id, message=message, **summary)
+
+@router.get("/session/{session_id}/progress", response_model=SearchProgressResponse)
+async def get_session_progress(
+    session_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+) -> SearchProgressResponse:
+    """
+    How far a session's search has come.
+
+    Cheap to call (counts only), meant for polling while a search runs. The
+    session is "pending" while queued, "processing" while a worker searches it,
+    then "completed" or "failed" (with error_message). "stale" means it says
+    processing but the worker stopped reporting; searching again takes it over.
+
+    Args:
+        session_id: Session ID
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        SearchProgressResponse: Status and keyword counts
+
+    Raises:
+        HTTPException: 404 if the session is not found
+    """
+    service = SearchService(db, current_user)
+
+    session = await service.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Search session not found"
+        )
+
+    return SearchProgressResponse(**await service.progress(session))
 
 
 @router.delete("/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -418,6 +487,13 @@ async def delete_session(
         HTTPException: If session not found
     """
     service = SearchService(db, current_user)
+
+    session = await service.get_session(session_id)
+    if session and service.is_busy(session):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A search is still running for this session"
+        )
 
     deleted = await service.delete_session(session_id)
     if not deleted:

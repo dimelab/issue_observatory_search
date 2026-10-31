@@ -77,6 +77,7 @@ climate change
 global warming
 carbon emissions"></textarea>
             <p class="mt-1 text-xs text-gray-500">Enter one search query per line. Each will be executed separately.</p>
+            <p id="search-wait-note" class="hidden mt-1 text-xs text-blue-700"></p>
         </div>
 
         <!-- Max Results -->
@@ -150,43 +151,6 @@ carbon emissions"></textarea>
             <p class="mt-1 text-xs text-gray-500">Filter results by domain extensions (comma-separated TLDs)</p>
         </div>
 
-        <!-- Auto-scrape Option -->
-        <div class="border-t border-gray-200 pt-6">
-            <div class="flex items-start">
-                <div class="flex items-center h-5">
-                    <input
-                        id="auto_scrape"
-                        name="auto_scrape"
-                        type="checkbox"
-                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                </div>
-                <div class="ml-3">
-                    <label for="auto_scrape" class="font-medium text-gray-700">
-                        Automatically scrape search results
-                    </label>
-                    <p class="text-sm text-gray-500">
-                        Start scraping job immediately after search completes
-                    </p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Scrape Depth (conditional) -->
-        <div id="scrape_depth_section" class="hidden">
-            <label for="scrape_depth" class="block text-sm font-medium text-gray-700">
-                Scraping Depth
-            </label>
-            <select
-                id="scrape_depth"
-                name="scrape_depth"
-                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                <option value="1">Level 1 - Search results only</option>
-                <option value="2">Level 2 - Include linked pages (1 hop)</option>
-                <option value="3">Level 3 - Include 2nd level links (2 hops)</option>
-            </select>
-            <p class="mt-1 text-xs text-gray-500">How deep to follow links from search results</p>
-        </div>
-
         <!-- Submit Button -->
         <div class="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
             <button
@@ -212,15 +176,32 @@ carbon emissions"></textarea>
 
 {% block extra_scripts %}
 <script>
-// Show/hide scrape depth based on auto-scrape checkbox
-document.getElementById('auto_scrape').addEventListener('change', function() {
-    const scrapeDepthSection = document.getElementById('scrape_depth_section');
-    if (this.checked) {
-        scrapeDepthSection.classList.remove('hidden');
-    } else {
-        scrapeDepthSection.classList.add('hidden');
+// How many keywords the server searches at the same time (SEARCH_CONCURRENCY in .env)
+const SEARCH_CONCURRENCY = {{ search_concurrency }};
+
+function keywordCount() {
+    return document.getElementById('keywords').value
+        .split('\n')
+        .filter(line => line.trim().length > 0).length;
+}
+
+// Serper searches wait for Google: tell how long the typed keywords will take
+function updateSearchWaitNote() {
+    const note = document.getElementById('search-wait-note');
+    const count = keywordCount();
+    if (document.getElementById('search_engine').value !== 'serper' || count === 0) {
+        note.classList.add('hidden');
+        return;
     }
-});
+    note.textContent = 'Expected wait: ' + searchWaitEstimate(count, SEARCH_CONCURRENCY) +
+        ' for ' + count + (count === 1 ? ' keyword' : ' keywords') +
+        '. Google holds back result links for about 30 seconds after each search, and up to ' +
+        SEARCH_CONCURRENCY + ' keywords are searched at once. The search runs on the server: ' +
+        'you can leave the page once it has started.';
+    note.classList.remove('hidden');
+}
+document.getElementById('keywords').addEventListener('input', updateSearchWaitNote);
+document.getElementById('search_engine').addEventListener('change', updateSearchWaitNote);
 
 // Handle form submission
 document.getElementById('search-form').addEventListener('submit', async function(e) {
@@ -244,14 +225,6 @@ document.getElementById('search-form').addEventListener('submit', async function
         country: document.getElementById('country').value,
         allowed_domains: document.getElementById('domain_filter').value.trim()
             ? document.getElementById('domain_filter').value.split(',').map(d => d.trim())
-            : null,
-        auto_scrape: document.getElementById('auto_scrape').checked,
-        scrape_config: document.getElementById('auto_scrape').checked
-            ? {
-                depth: parseInt(document.getElementById('scrape_depth').value),
-                max_urls_per_domain: 10,
-                recollect: false
-              }
             : null
     };
 
@@ -271,34 +244,26 @@ document.getElementById('search-form').addEventListener('submit', async function
 
     // Show loading state
     submitButton.disabled = true;
-    buttonText.textContent = 'Executing search...';
+    buttonText.textContent = 'Starting search...';
     loadingSpinner.classList.remove('hidden');
     messageContainer.innerHTML = '';
 
     try {
-        const token = localStorage.getItem('token');
         const response = await fetch('/api/search/execute', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(formData)
         });
 
         const data = await response.json();
 
         if (response.ok) {
-            // Show success message
-            showMessage('success', 'Search executed successfully! Redirecting...');
-
-            // Redirect to session details
-            setTimeout(() => {
-                window.location.href = `/search/session/${data.session_id}`;
-            }, 1000);
+            // The search is queued for a worker: the session page follows its progress
+            showMessage('success', 'Search started. Taking you to its progress...');
+            window.location.href = `/search/session/${data.session_id}`;
         } else {
             // Show error message
-            showMessage('error', data.detail || 'Failed to execute search');
+            showMessage('error', (data.error && data.error.message) || data.detail || 'Failed to execute search');
 
             // Reset button
             submitButton.disabled = false;
@@ -317,12 +282,17 @@ document.getElementById('search-form').addEventListener('submit', async function
 
 function showMessage(type, message) {
     const messageContainer = document.getElementById('message-container');
-    const bgColor = type === 'error' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200';
-    const textColor = type === 'error' ? 'text-red-800' : 'text-green-800';
-    const iconColor = type === 'error' ? 'text-red-400' : 'text-green-400';
-    const iconPath = type === 'error'
-        ? 'M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z'
-        : 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z';
+    const colors = {
+        error: ['bg-red-50 border-red-200', 'text-red-800', 'text-red-400'],
+        info: ['bg-blue-50 border-blue-200', 'text-blue-800', 'text-blue-400'],
+        success: ['bg-green-50 border-green-200', 'text-green-800', 'text-green-400']
+    };
+    const [bgColor, textColor, iconColor] = colors[type] || colors.success;
+    const iconPath = {
+        error: 'M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z',
+        info: 'M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z',
+        success: 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z'
+    }[type] || 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z';
 
     messageContainer.innerHTML = `
         <div class="rounded-md ${bgColor} border p-4">

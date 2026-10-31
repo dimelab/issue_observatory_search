@@ -98,14 +98,29 @@ class SearchAddQueriesResponse(BaseModel):
 
 
 class SearchRunPendingResponse(BaseModel):
-    """Response schema for searching the keywords added to a session."""
+    """Response schema for queueing the search of a session's pending keywords."""
 
     session_id: int
-    queries_run: int
-    queries_failed: int
-    new_results: int
-    pending_count: int
+    task_id: Optional[str] = None
+    status: str = Field(description="Session status: pending (queued) once the search is queued")
+    queued: int = Field(description="Keywords the worker will search")
     message: str
+
+
+class SearchProgressResponse(BaseModel):
+    """How far a session's search in the worker has come."""
+
+    status: str = Field(description="pending (queued), processing, completed or failed")
+    error_message: Optional[str] = None
+    total: int = Field(description="Keywords in the session")
+    pending: int
+    processing: int
+    completed: int
+    failed: int
+    results: int = Field(description="Results stored so far")
+    started_at: Optional[datetime] = None
+    updated_at: datetime
+    stale: bool = Field(description="Says processing but the worker stopped reporting")
 
 
 class SearchResultResponse(BaseModel):
@@ -164,6 +179,7 @@ class SearchSessionDetailResponse(BaseModel):
     description: Optional[str]
     status: str
     config: Optional[dict] = None
+    error_message: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime

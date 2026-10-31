@@ -54,32 +54,10 @@ async def search_query(db_session, search_session):
 
 
 def test_execute_search_success(client, auth_headers):
-    """Test successful search execution."""
-    mock_results = [
-        {
-            "link": "https://example.com/page1",
-            "title": "Test Page 1",
-            "snippet": "Description 1"
-        },
-        {
-            "link": "https://example.com/page2",
-            "title": "Test Page 2",
-            "snippet": "Description 2"
-        }
-    ]
-
-    mock_response = {
-        "items": mock_results,
-        "searchInformation": {"totalResults": "2"}
-    }
-
-    with patch("httpx.AsyncClient.get") as mock_get:
-        mock_get.return_value = AsyncMock(
-            status_code=200,
-            json=lambda: mock_response
-        )
-        mock_get.return_value.raise_for_status = lambda: None
-
+    """The search is queued for a worker: the request answers 202 at once."""
+    with patch(
+        "backend.services.search_service.SearchService.ensure_engine_configured"
+    ), patch("backend.tasks.search_tasks.run_search_session.apply_async") as apply_async:
         response = client.post(
             "/api/search/execute",
             headers=auth_headers,
@@ -94,8 +72,10 @@ def test_execute_search_success(client, auth_headers):
         assert response.status_code == 202
         data = response.json()
         assert "session_id" in data
-        assert data["status"] in ["processing", "completed"]
+        assert data["status"] == "pending"
         assert "status_url" in data
+        apply_async.assert_called_once()
+        assert apply_async.call_args.kwargs["queue"] == "search"
 
 
 def test_execute_search_unauthorized(client):
@@ -144,27 +124,10 @@ def test_execute_search_invalid_domains(client, auth_headers):
 
 
 def test_execute_search_with_domain_filter(client, auth_headers):
-    """Test search with domain filter."""
-    mock_results = [
-        {
-            "link": "https://example.dk/page1",
-            "title": "Danish Page",
-            "snippet": "Description"
-        }
-    ]
-
-    mock_response = {
-        "items": mock_results,
-        "searchInformation": {"totalResults": "1"}
-    }
-
-    with patch("httpx.AsyncClient.get") as mock_get:
-        mock_get.return_value = AsyncMock(
-            status_code=200,
-            json=lambda: mock_response
-        )
-        mock_get.return_value.raise_for_status = lambda: None
-
+    """The domain filter is kept on the session and its keywords for the worker."""
+    with patch(
+        "backend.services.search_service.SearchService.ensure_engine_configured"
+    ), patch("backend.tasks.search_tasks.run_search_session.apply_async"):
         response = client.post(
             "/api/search/execute",
             headers=auth_headers,
@@ -178,6 +141,8 @@ def test_execute_search_with_domain_filter(client, auth_headers):
         )
 
         assert response.status_code == 202
+        session = client.get(response.json()["status_url"], headers=auth_headers).json()
+        assert session["config"]["allowed_domains"] == [".dk"]
 
 
 def test_list_sessions(client, auth_headers, search_session):
@@ -283,35 +248,18 @@ def test_delete_session_unauthorized(client, search_session):
     assert response.status_code == 403
 
 
-def test_search_deduplication(client, auth_headers):
-    """Test that duplicate URLs are removed across queries."""
-    # Mock same URL returned for different queries
-    mock_results = [
-        {
-            "link": "https://example.com/same-page",
-            "title": "Same Page",
-            "snippet": "Description"
-        }
-    ]
-
-    mock_response = {
-        "items": mock_results,
-        "searchInformation": {"totalResults": "1"}
-    }
-
-    with patch("httpx.AsyncClient.get") as mock_get:
-        mock_get.return_value = AsyncMock(
-            status_code=200,
-            json=lambda: mock_response
-        )
-        mock_get.return_value.raise_for_status = lambda: None
-
+def test_execute_search_queues_each_keyword_for_the_worker(client, auth_headers):
+    """The keywords are stored as pending queries; the search worker searches them and
+    removes duplicate URLs across them (tests/test_search_add_keywords.py, TestQueueThenRun)."""
+    with patch(
+        "backend.services.search_service.SearchService.ensure_engine_configured"
+    ), patch("backend.tasks.search_tasks.run_search_session.apply_async"):
         response = client.post(
             "/api/search/execute",
             headers=auth_headers,
             json={
                 "session_name": "Dedup Test",
-                "queries": ["query1", "query2"],  # Both will return same URL
+                "queries": ["query1", "query2", "QUERY1"],  # the third is the first again
                 "search_engine": "google_custom",
                 "max_results": 10
             }
@@ -320,16 +268,7 @@ def test_search_deduplication(client, auth_headers):
         assert response.status_code == 202
         session_id = response.json()["session_id"]
 
-        # Get session details
-        response = client.get(
-            f"/api/search/session/{session_id}",
-            headers=auth_headers
-        )
-
-        data = response.json()
-        # Should have 2 queries
-        assert len(data["queries"]) == 2
-
-        # But only 1 unique result total (deduplication worked)
-        total_results = sum(len(q["results"]) for q in data["queries"])
-        assert total_results == 1
+        data = client.get(f"/api/search/session/{session_id}", headers=auth_headers).json()
+        assert data["status"] == "pending"
+        assert sorted(q["query_text"] for q in data["queries"]) == ["query1", "query2"]
+        assert all(q["status"] == "pending" and q["results"] == [] for q in data["queries"])

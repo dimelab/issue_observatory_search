@@ -17,6 +17,7 @@ from backend.models.scraping import ScrapingJob
 from backend.models.search import SearchQuery, SearchResult, SearchSession
 from backend.models.website import Website, WebsiteContent
 from backend.services.search_service import SearchService
+from backend.tasks import search_tasks
 from backend.tasks.scraping_tasks import get_previously_collected_urls
 from backend.utils.dependencies import get_current_active_user
 
@@ -113,8 +114,8 @@ async def queries_of(db_session, session):
     return list(result.scalars().all())
 
 
-class TestExecuteSearchUnchanged:
-    """The original multi-keyword search shares _run_query with the new flow."""
+class TestQueueThenRun:
+    """A new multi-keyword search is queued as pending keywords, then run like added ones."""
 
     async def test_dedupes_across_keywords_and_records_failures(
         self, db_session, test_user, stub_engine
@@ -129,18 +130,23 @@ class TestExecuteSearchUnchanged:
             )
         )
         service = SearchService(db_session, test_user)
-        session = await service.create_session("S", config={"search_engine": "serper"})
-
-        done = await service.execute_search(
-            session=session,
-            queries=["one", "bad", "two"],
-            search_engine="serper",
-            max_results=5,
-            language="da",
-            country="dk",
+        session, count = await service.queue_session(
+            "S",
+            ["one", "bad", "two"],
+            {
+                "search_engine": "serper",
+                "max_results": 5,
+                "language": "da",
+                "country": "dk",
+                "allowed_domains": None,
+            },
         )
+        assert count == 3
+        assert [q.status for q in await queries_of(db_session, session)] == ["pending"] * 3
 
-        assert done.status == "completed"
+        summary = await service.run_pending_queries(session)
+
+        assert (summary["queries_run"], summary["queries_failed"]) == (3, 1)
         assert engine.calls[0] == ("one", 5, "da", "dk")
         by_text = {q.query_text: q for q in await queries_of(db_session, session)}
         assert (by_text["one"].result_count, by_text["two"].result_count) == (2, 1)
@@ -339,10 +345,16 @@ class TestSessionEndpoints:
         ) as client:
             yield client
 
-    async def test_add_then_run(
-        self, api, db_session, session_with_results, stub_engine
+    async def test_add_then_queue_the_search(
+        self, api, db_session, session_with_results, monkeypatch, stub_engine
     ):
-        stub_engine(StubEngine({"ny": ["https://c.dk/x"]}))
+        stub_engine(StubEngine({}))
+        sent = []
+        monkeypatch.setattr(
+            search_tasks.run_search_session,
+            "apply_async",
+            lambda args, task_id, queue, **kw: sent.append((args, task_id, queue)),
+        )
         base = f"/api/search/session/{session_with_results.id}"
 
         response = await api.post(
@@ -355,16 +367,15 @@ class TestSessionEndpoints:
         assert body["pending_count"] == 1
 
         response = await api.post(f"{base}/queries/run")
-        assert response.status_code == 200
+        assert response.status_code == 202  # queued for a worker, nothing searched here
         body = response.json()
-        assert (body["queries_run"], body["new_results"], body["pending_count"]) == (
-            1,
-            1,
-            0,
-        )
+        assert (body["queued"], body["status"]) == (1, "pending")
+        assert sent == [([session_with_results.id], body["task_id"], "search")]
 
+        # queued: a second click must not queue it again
         response = await api.post(f"{base}/queries/run")
-        assert response.json()["queries_run"] == 0
+        assert response.status_code == 409
+        assert len(sent) == 1
 
     async def test_rejects_blank_keywords(self, api, session_with_results):
         response = await api.post(

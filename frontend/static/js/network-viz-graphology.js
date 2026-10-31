@@ -76,18 +76,50 @@ const COMMUNITY_OTHER_COLOR = '#CBD5E1';
 // ForceAtlas2 iterations as fit in the budget (an iteration costs about 1 ms at 800 nodes
 // and 4 ms at 2,600), instead of one per frame. The budget is at least
 // LAYOUT_FRAME_BUDGET_MS and follows the redraw time, so a slow renderer is not asked to
-// redraw after every iteration. With strong gravity the layout converges:
-// it stops by itself when, over LAYOUT_SETTLE_WINDOW iterations, nodes moved on average
-// less than LAYOUT_SETTLE_MOVE of the core's size per iteration (and at least
+// redraw after every iteration. The layout converges: it stops by itself when two things
+// hold. (1) Over LAYOUT_SETTLE_WINDOW iterations, the nodes of the main component moved on
+// average less than LAYOUT_SETTLE_MOVE of the core's size per iteration (and at least
 // LAYOUT_MIN_ITERATIONS have run). The core's size is the 5th-95th percentile range of the
-// positions, not the bounding box: in classic mode outliers keep drifting and inflate the
-// box, which would make a layout that is still collapsing look settled.
+// positions, not the bounding box: outliers keep drifting and inflate the box, which would
+// make a layout that is still collapsing look settled. (2) The drawing's overall shape is
+// steady: its two principal axes changed by less than LAYOUT_SHAPE_TOLERANCE over the last
+// LAYOUT_SHAPE_SPAN iterations. Without (2) a chain or strip, which stretches slowly, would
+// be stopped part way: its nodes move little per iteration, but the movement adds up.
 const LAYOUT_FRAME_BUDGET_MS = 10;
 const LAYOUT_MAX_FRAME_BUDGET_MS = 40;  // the budget grows with the time a redraw takes, up to this
 const LAYOUT_MAX_ITERATIONS_PER_FRAME = 40;
 const LAYOUT_SETTLE_WINDOW = 50;
 const LAYOUT_SETTLE_MOVE = 0.0005;
 const LAYOUT_MIN_ITERATIONS = 100;
+const LAYOUT_SHAPE_SPAN = 200;
+const LAYOUT_SHAPE_TOLERANCE = 0.05;
+
+// Small connected components (say a few sites that share one keyword) feel only the big
+// core's repulsion and ForceAtlas2's constant gravity, so they drift far out and, because the
+// view fits the whole drawing, shrink the core on screen. Gephi has the same behaviour. With
+// keepComponentsNear (on in the organic style) every layout frame moves a component back, as a whole,
+// when its edge would lie further than LAYOUT_COMPONENT_REACH x the main component's radius
+// (95th percentile of the distance from its centre) from the main component's centre.
+// This only applies when the main component holds at least LAYOUT_MAIN_SHARE of the nodes;
+// in a network of many similar-sized pieces there is no main one to gather them around.
+const LAYOUT_COMPONENT_REACH = 1.3;
+const LAYOUT_MAIN_SHARE = 0.5;
+
+// The two layout styles the Layout switch chooses between (each is a function of the node
+// count). Compact, the default, uses strong gravity: gravity that grows with the distance from
+// the centre keeps every network close, settled and filling the view, but makes it round
+// whatever its structure. Organic is Gephi's ForceAtlas2 defaults (plain gravity, scaling 2
+// from 100 nodes, 10 below): the shape follows the data. Small components are held near the
+// main cluster there, because plain gravity lets them drift far out.
+const LAYOUT_STYLES = {
+    compact: () => ({ strongGravityMode: true, gravity: 1.0, scalingRatio: 10, keepComponentsNear: false }),
+    organic: (nodes) => ({
+        strongGravityMode: false,
+        gravity: 1.0,
+        scalingRatio: nodes >= 100 ? 2 : 10,
+        keepComponentsNear: true
+    })
+};
 
 // Label spreading (setAllLabels). Sigma's default label renderer draws the text
 // LABEL_GAP px right of the node's edge with its baseline labelSize / 3 below the
@@ -164,11 +196,15 @@ class GraphologyNetworkVisualizer {
         this.layoutIsRunning = false;
         this.layoutAnimationFrame = null;
         this.autoStopLayout = true;       // stop by itself once the layout settled (see LAYOUT_SETTLE_MOVE)
+        this.keepComponentsNear = false;  // pull small components back towards the main one (see LAYOUT_COMPONENT_REACH); on in the organic style
+        this.layoutComponents = [];       // node ids per connected component, largest first
+        this.componentIndex = new Map();  // node id -> index in layoutComponents
         this.layoutIterations = 0;        // iterations run since the layout was last started
         this.layoutItersPerFrame = 1;     // adapts to what fits in the frame budget
         this.layoutRenderMs = 0;          // recent redraw time (moving average)
         this.layoutStartedAt = 0;
         this.settleWindow = null;         // positions at the start of the current settle window
+        this.axisHistory = [];            // principal axis lengths at the end of each settle window
 
         // Configuration (similar to some2net)
         this.options = {
@@ -181,10 +217,9 @@ class GraphologyNetworkVisualizer {
                 scalingRatio: 10,
                 slowDown: 1,  // replaced by 1 + ln(nodes) when a graph is loaded (tuneLayoutForGraph)
                 linLogMode: false,
-                // Gravity that grows with distance from the centre. Classic ForceAtlas2 gravity is
-                // constant, so small subgraphs are pushed far out by the big core and keep drifting;
-                // the fit-to-screen view then shrinks the core into a tight blob. With strong
-                // gravity they stay near, the layout settles and the core fills the view.
+                // The compact style (see LAYOUT_STYLES): strong gravity grows with the distance from
+                // the centre, so small subgraphs stay near, the layout settles and fills the view;
+                // the price is a round shape whatever the structure. Off is classic ForceAtlas2 (organic).
                 strongGravityMode: true,
                 ...(options.fa2Settings || {})
             },
@@ -687,6 +722,7 @@ class GraphologyNetworkVisualizer {
         this.layoutRenderMs = 0;
         this.layoutStartedAt = performance.now();
         this.settleWindow = null;
+        this.axisHistory = [];
         this.layoutIsRunning = true;
         this.onLayoutStateChange(true);
         this.layoutAnimationFrame = requestAnimationFrame(() => this.animateLayout());
@@ -708,6 +744,7 @@ class GraphologyNetworkVisualizer {
                 iterations,
                 settings: this.options.fa2Settings
             });
+            if (this.keepComponentsNear) this.pullInSmallComponents();
             const layoutMs = performance.now() - started;
             this.layoutIterations += iterations;
 
@@ -751,17 +788,18 @@ class GraphologyNetworkVisualizer {
     /**
      * Whether the layout has stopped changing: compares node positions at the start and
      * end of each window of LAYOUT_SETTLE_WINDOW iterations. Called once per frame with
-     * the number of iterations that frame ran.
+     * the number of iterations that frame ran. Only the main component is judged: small
+     * components held at the edge of their allowed zone keep sliding along it, which is
+     * not a layout that is still changing.
      */
     layoutHasSettled(iterations) {
+        const nodes = this.mainComponent() || this.graph.nodes();
         const capture = () => {
-            const x = new Float64Array(this.graph.order);
-            const y = new Float64Array(this.graph.order);
-            let index = 0;
-            this.graph.forEachNode((node, attributes) => {
-                x[index] = attributes.x;
-                y[index] = attributes.y;
-                index++;
+            const x = new Float64Array(nodes.length);
+            const y = new Float64Array(nodes.length);
+            nodes.forEach((node, index) => {
+                x[index] = this.graph.getNodeAttribute(node, 'x');
+                y[index] = this.graph.getNodeAttribute(node, 'y');
             });
             return { x, y, iterations: 0 };
         };
@@ -775,24 +813,61 @@ class GraphologyNetworkVisualizer {
 
         const { x, y, iterations: windowIterations } = this.settleWindow;
         let moved = 0;
-        let index = 0;
         const xs = [];
         const ys = [];
-        this.graph.forEachNode((node, attributes) => {
-            moved += Math.hypot(attributes.x - x[index], attributes.y - y[index]);
-            xs.push(attributes.x);
-            ys.push(attributes.y);
-            index++;
+        nodes.forEach((node, index) => {
+            const nodeX = this.graph.getNodeAttribute(node, 'x');
+            const nodeY = this.graph.getNodeAttribute(node, 'y');
+            moved += Math.hypot(nodeX - x[index], nodeY - y[index]);
+            xs.push(nodeX);
+            ys.push(nodeY);
         });
+
+        // Shape: compare the principal axes with those LAYOUT_SHAPE_SPAN iterations ago
+        const axes = this.principalAxes(xs, ys);
+        this.axisHistory.push({ iterations: this.layoutIterations, ...axes });
+        const reference = [...this.axisHistory].reverse()
+            .find((entry) => entry.iterations <= this.layoutIterations - LAYOUT_SHAPE_SPAN);
+        const change = (now, before) => Math.abs(now - before) / (before || 1);
+        const shapeSteady = Boolean(reference) &&
+            change(axes.major, reference.major) < LAYOUT_SHAPE_TOLERANCE &&
+            change(axes.minor, reference.minor) < LAYOUT_SHAPE_TOLERANCE;
+
         xs.sort((a, b) => a - b);
         ys.sort((a, b) => a - b);
         const low = Math.floor((xs.length - 1) * 0.05);
         const high = Math.floor((xs.length - 1) * 0.95);
         const coreSize = Math.max(xs[high] - xs[low], ys[high] - ys[low]) || 1;
-        const perIteration = moved / this.graph.order / windowIterations / coreSize;
+        const perIteration = moved / nodes.length / windowIterations / coreSize;
 
         this.settleWindow = capture();
-        return this.layoutIterations >= LAYOUT_MIN_ITERATIONS && perIteration < LAYOUT_SETTLE_MOVE;
+        return this.layoutIterations >= LAYOUT_MIN_ITERATIONS && perIteration < LAYOUT_SETTLE_MOVE && shapeSteady;
+    }
+
+    /**
+     * Lengths of the two principal axes of a point cloud (standard deviation along the
+     * longest direction and along the one at right angles to it)
+     */
+    principalAxes(xs, ys) {
+        const count = xs.length;
+        const meanX = xs.reduce((sum, value) => sum + value, 0) / count;
+        const meanY = ys.reduce((sum, value) => sum + value, 0) / count;
+        let varianceX = 0;
+        let varianceY = 0;
+        let covariance = 0;
+        for (let i = 0; i < count; i++) {
+            const dx = xs[i] - meanX;
+            const dy = ys[i] - meanY;
+            varianceX += dx * dx;
+            varianceY += dy * dy;
+            covariance += dx * dy;
+        }
+        const half = (varianceX + varianceY) / 2;
+        const spread = Math.sqrt(Math.max(0, ((varianceX - varianceY) / 2) ** 2 + covariance * covariance));
+        return {
+            major: Math.sqrt((half + spread) / count),
+            minor: Math.sqrt(Math.max(0, half - spread) / count)
+        };
     }
 
     /**
@@ -815,6 +890,7 @@ class GraphologyNetworkVisualizer {
     setAutoStopLayout(enabled) {
         this.autoStopLayout = Boolean(enabled);
         this.settleWindow = null;  // start measuring afresh
+        this.axisHistory = [];
     }
 
     getAutoStopLayout() {
@@ -822,11 +898,162 @@ class GraphologyNetworkVisualizer {
     }
 
     /**
-     * Pick the ForceAtlas2 slow-down for the loaded graph: 1 + ln(nodes), ForceAtlas2's own
-     * recommendation, which gives smoother convergence on larger graphs
+     * Whether small components are pulled back towards the main one while the layout runs
+     * (see LAYOUT_COMPONENT_REACH). Off: they drift as far as ForceAtlas2 pushes them.
+     */
+    setKeepComponentsNear(enabled) {
+        this.keepComponentsNear = Boolean(enabled);
+    }
+
+    getKeepComponentsNear() {
+        return this.keepComponentsNear;
+    }
+
+    /**
+     * The ForceAtlas2 settings in use (the slow-down is set per graph on load)
+     */
+    getLayoutSettings() {
+        return { ...this.options.fa2Settings };
+    }
+
+    /**
+     * The layout style the current settings amount to: a key of LAYOUT_STYLES, or 'custom'
+     * when a setting was changed by hand. Edge weight and Barnes-Hut do not count.
+     */
+    getLayoutStyle() {
+        const settings = this.options.fa2Settings;
+        for (const [name, preset] of Object.entries(LAYOUT_STYLES)) {
+            const wanted = preset(this.graph.order);
+            if (settings.strongGravityMode === wanted.strongGravityMode &&
+                settings.gravity === wanted.gravity &&
+                settings.scalingRatio === wanted.scalingRatio &&
+                this.keepComponentsNear === wanted.keepComponentsNear) {
+                return name;
+            }
+        }
+        return 'custom';
+    }
+
+    /**
+     * Switch to a layout style ('compact' or 'organic'; see LAYOUT_STYLES). Takes effect on
+     * the next layout frame; the caller starts the layout if it is stopped.
+     */
+    setLayoutStyle(name) {
+        if (!LAYOUT_STYLES[name]) return;
+        const { keepComponentsNear, ...settings } = LAYOUT_STYLES[name](this.graph.order);
+        this.options.fa2Settings = { ...this.options.fa2Settings, ...settings };
+        this.keepComponentsNear = keepComponentsNear;
+        this.settleWindow = null;  // start measuring afresh
+        this.axisHistory = [];
+    }
+
+    /**
+     * Set what depends on the loaded graph:
+     * - the ForceAtlas2 slow-down, 1 + ln(nodes): ForceAtlas2's own recommendation, which
+     *   gives smoother convergence on larger graphs
+     * - the settings of the current layout style (the organic one scales by node count)
+     * - the connected components, used by keepComponentsNear and the settle check
      */
     tuneLayoutForGraph() {
-        this.options.fa2Settings.slowDown = 1 + Math.log(Math.max(this.graph.order, 1));
+        const nodes = Math.max(this.graph.order, 1);
+        this.options.fa2Settings.slowDown = 1 + Math.log(nodes);
+        const style = this.getLayoutStyle();
+        if (style !== 'custom') this.setLayoutStyle(style);
+        this.layoutComponents = this.findComponents();
+    }
+
+    /**
+     * The node ids of the main component, or null when there is no single main one: the
+     * graph is connected (nothing to gather), or its largest component holds less than
+     * LAYOUT_MAIN_SHARE of the nodes
+     */
+    mainComponent() {
+        const components = this.layoutComponents;
+        if (components.length < 2) return null;
+        return components[0].length >= LAYOUT_MAIN_SHARE * this.graph.order ? components[0] : null;
+    }
+
+    /**
+     * Connected components of the full graph as arrays of node ids, largest first
+     */
+    findComponents() {
+        const seen = new Set();
+        const components = [];
+        this.graph.forEachNode((start) => {
+            if (seen.has(start)) return;
+            const members = [start];
+            seen.add(start);
+            for (let head = 0; head < members.length; head++) {
+                this.graph.forEachNeighbor(members[head], (neighbor) => {
+                    if (!seen.has(neighbor)) {
+                        seen.add(neighbor);
+                        members.push(neighbor);
+                    }
+                });
+            }
+            components.push(members);
+        });
+        components.sort((a, b) => b.length - a.length);
+        this.componentIndex = new Map();
+        components.forEach((members, index) => members.forEach((node) => this.componentIndex.set(node, index)));
+        return components;
+    }
+
+    /**
+     * Move every component other than the main one back, as a whole, when it lies further
+     * from the main component than LAYOUT_COMPONENT_REACH x the main component's radius
+     * (measured to the component's near edge, so two components of similar size do not
+     * overlap). Then put the main component's centre on the origin: the small components
+     * crowd one side of it and push it away, and without this the whole drawing would
+     * keep drifting in that direction. Called after each batch of layout iterations; one
+     * batched update of the positions.
+     */
+    pullInSmallComponents() {
+        const components = this.layoutComponents;
+        if (!this.mainComponent()) return;
+
+        const centreOf = (nodes) => {
+            let sumX = 0;
+            let sumY = 0;
+            nodes.forEach((node) => {
+                sumX += this.graph.getNodeAttribute(node, 'x');
+                sumY += this.graph.getNodeAttribute(node, 'y');
+            });
+            return { x: sumX / nodes.length, y: sumY / nodes.length };
+        };
+        // 95th percentile of the distance from the centre
+        const radiusAround = (nodes, centre) => {
+            const distances = nodes.map((node) => Math.hypot(
+                this.graph.getNodeAttribute(node, 'x') - centre.x,
+                this.graph.getNodeAttribute(node, 'y') - centre.y
+            ));
+            distances.sort((a, b) => a - b);
+            return distances[Math.floor((distances.length - 1) * 0.95)];
+        };
+
+        const mainCentre = centreOf(components[0]);
+        const limit = LAYOUT_COMPONENT_REACH * radiusAround(components[0], mainCentre);
+
+        // Per component: how far it moves (null = stays where it is)
+        const shifts = new Array(components.length).fill(null);
+        for (let i = 1; i < components.length; i++) {
+            const centre = centreOf(components[i]);
+            const dx = centre.x - mainCentre.x;
+            const dy = centre.y - mainCentre.y;
+            const distance = Math.hypot(dx, dy);
+            const reach = limit + radiusAround(components[i], centre);
+            if (distance > reach) {
+                const shift = reach / distance - 1;  // negative: towards the main component
+                shifts[i] = [dx * shift, dy * shift];
+            }
+        }
+
+        this.graph.updateEachNodeAttributes((node, attributes) => {
+            const shift = shifts[this.componentIndex.get(node)];
+            attributes.x += (shift ? shift[0] : 0) - mainCentre.x;
+            attributes.y += (shift ? shift[1] : 0) - mainCentre.y;
+            return attributes;
+        }, { attributes: ['x', 'y'] });
     }
 
     /**

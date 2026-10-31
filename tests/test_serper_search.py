@@ -165,6 +165,7 @@ async def test_serper_search_max_results():
 async def test_serper_search_rate_limit_error():
     """Test Serper search rate limit handling."""
     engine = SerperSearch(api_key="test_key")
+    engine.RATE_LIMIT_BASE_WAIT = 0.0  # the 429 is waited out and retried; do not really wait
 
     with patch("httpx.AsyncClient.post") as mock_post:
         mock_post.return_value = AsyncMock(

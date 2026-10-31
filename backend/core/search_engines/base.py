@@ -1,7 +1,36 @@
 """Abstract base class for search engines."""
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
+
+# google.com, www.google.com, google.co.uk, www.google.dk, ...
+_GOOGLE_HOST = re.compile(r"^(www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?$")
+
+
+def is_google_redirect(url: str) -> bool:
+    """
+    Whether a result link is a Google redirect (google.com/goto?url=...) rather
+    than the page itself.
+
+    Google returns these for result links on searches made without a Google
+    account; the real address is inside the link and cannot be read from it. A
+    search engine client has to resolve them (see SerperSearch) and nothing
+    should store, deduplicate or scrape them as if they were the page.
+
+    Args:
+        url: Link taken from a search response
+
+    Returns:
+        bool: True for a link on a Google domain whose path starts with /goto
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower()
+    return bool(_GOOGLE_HOST.match(host)) and parsed.path.startswith("/goto")
 
 
 @dataclass

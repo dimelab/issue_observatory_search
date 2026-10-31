@@ -4,7 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/css/custom.css">
-<script src="/static/js/network-viz-graphology.js?v=6.0.0.9"></script>
+<script src="/static/js/network-viz-graphology.js?v=6.0.0.11"></script>
 <style>
     #network-container {
         width: 100%;
@@ -76,6 +76,20 @@
                     ⏸️ Stop Layout
                 </button>
 
+                <!-- Layout style: compact (strong gravity, round) or organic (Gephi's defaults) -->
+                <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700"
+                       title="Compact keeps everything close and fills the screen but makes every network round. Organic is Gephi's ForceAtlas2: the shape follows the data.">
+                    <span>Layout</span>
+                    <select x-model="layoutStyle"
+                            @change="setLayoutStyle(layoutStyle)"
+                            id="layout-style"
+                            class="border border-gray-300 rounded-md px-2 py-2 text-sm font-normal text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="compact">Compact</option>
+                        <option value="organic">Organic</option>
+                        <option value="custom" disabled>Custom</option>
+                    </select>
+                </label>
+
                 <!-- Labels on/off -->
                 <button @click="toggleLabels()"
                         :aria-pressed="labelsVisible.toString()"
@@ -144,7 +158,12 @@
 
         <!-- Layout Settings Panel -->
         <div x-show="showLayoutSettings" x-cloak class="mt-4 bg-white rounded-lg shadow-md p-4">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">ForceAtlas2 Settings</h3>
+            <h3 class="text-sm font-semibold text-gray-900 mb-1">ForceAtlas2 Settings</h3>
+            <p class="text-xs text-gray-500 mb-4" id="layout-style-note">
+                The Layout switch in the toolbar sets Strong gravity, Gravity, Scaling and Keep small components near:
+                <strong>Compact</strong> is the default; <strong>Organic</strong> follows the shape of the data.
+                Changing one of them yourself shows <em>Custom</em>.
+            </p>
 
             <div class="space-y-4">
                 <!-- Strong gravity -->
@@ -158,8 +177,27 @@
                         <span class="ml-2 text-sm font-medium text-gray-700">Strong gravity</span>
                     </label>
                     <p class="mt-1 ml-6 text-xs text-gray-500" id="strong-gravity-note">
-                        Keeps small subgraphs near the centre so the drawing fills the screen and settles.
-                        Off: classic ForceAtlas2, where they drift far out and squeeze the core into a tight blob.
+                        On (Compact): gravity grows with the distance from the centre, which keeps everything close and
+                        filling the screen but makes every network round; lower Gravity (about 0.05 is a gentle value) for
+                        a looser result. Off (Organic, as in Gephi): gravity has a constant strength, so the layout takes
+                        the shape of the data (chains stay chains, clusters stay apart).
+                    </p>
+                </div>
+
+                <!-- Keep small components near -->
+                <div>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox"
+                               x-model="keepComponentsNear"
+                               @change="visualizer.setKeepComponentsNear(keepComponentsNear); updateLayoutSettings()"
+                               id="keepComponentsNear"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm font-medium text-gray-700">Keep small components near the main cluster</span>
+                    </label>
+                    <p class="mt-1 ml-6 text-xs text-gray-500" id="keep-near-note">
+                        Separate pieces of the network (for example a few sites that share one keyword) are held just
+                        outside the main cluster (on in Organic). Off: as in Gephi, they drift far out and make the main
+                        cluster small; with strong gravity they stay near anyway.
                     </p>
                 </div>
 
@@ -190,7 +228,7 @@
                            @input="updateLayoutSettings()"
                            min="0" max="5" step="0.05"
                            class="w-full">
-                    <div class="text-xs text-gray-500 mt-1">Higher: more compact and even. Lower: looser, with small groups further out.</div>
+                    <div class="text-xs text-gray-500 mt-1">Pulls every node towards the centre (Gephi: 1). Higher: more compact and rounder. Lower: looser.</div>
                 </div>
 
                 <!-- Scaling Ratio -->
@@ -204,7 +242,7 @@
                            @input="updateLayoutSettings()"
                            min="1" max="50" step="1"
                            class="w-full">
-                    <div class="text-xs text-gray-500 mt-1">Repulsion between nodes: higher spreads the layout out relative to gravity.</div>
+                    <div class="text-xs text-gray-500 mt-1">Repulsion between nodes. Mostly changes the scale of the drawing, not its shape (Gephi: 2 from 100 nodes, 10 below).</div>
                 </div>
 
                 <!-- Edge Weight Influence -->
@@ -458,7 +496,9 @@
             communityInfo: null,       // { source: 'file' | 'browser', nodes, communities, ms }
             communityStale: false,     // filters changed since the communities were assigned
             exportOpen: false,
-            // slowDown is not here on purpose: the visualizer sets it from the graph size
+            // slowDown is not here on purpose: the visualizer sets it from the graph size.
+            // The compact style (see LAYOUT_STYLES in network-viz-graphology.js) is the default;
+            // the visualizer owns the style definitions and syncLayoutControls() copies them here.
             layoutSettings: {
                 gravity: 1.0,
                 scalingRatio: 10,
@@ -467,8 +507,10 @@
                 barnesHutTheta: 1.2,
                 strongGravityMode: true
             },
+            layoutStyle: 'compact',    // 'compact' | 'organic' | 'custom'
             layoutNote: '',            // e.g. "Layout settled after 340 iterations"
             autoStopLayout: true,      // stop the layout by itself once it settled
+            keepComponentsNear: false, // hold small components just outside the main cluster (on in the organic style)
             stats: {
                 nodes: 0,
                 edges: 0,
@@ -515,6 +557,8 @@
                 try {
                     const url = `/api/networks/${this.networkId}/download`;
                     await this.visualizer.loadFromGEXF(url);
+                    // The organic style scales by the network's size; show what the visualizer chose
+                    this.syncLayoutControls();
                     this.availableTypes = this.visualizer.getNodeTypes();
                     this.sizeMetric = this.visualizer.getSizeMetric();
                     this.sizeMetrics = this.visualizer.getAvailableSizeMetrics();
@@ -707,8 +751,27 @@
                 // otherwise moving a slider would change nothing you can see.
                 if (this.visualizer && typeof this.visualizer.updateLayoutSettings === 'function') {
                     this.visualizer.updateLayoutSettings(this.layoutSettings);
+                    this.layoutStyle = this.visualizer.getLayoutStyle();
                     if (!this.layoutRunning) this.startLayout();
                 }
+            },
+
+            // The Layout switch: the visualizer applies the style, the controls follow it
+            setLayoutStyle(style) {
+                if (!this.visualizer || style === 'custom') return;
+                this.visualizer.setLayoutStyle(style);
+                this.syncLayoutControls();
+                if (!this.layoutRunning) this.startLayout();
+            },
+
+            // Copy the visualizer's layout settings into the controls
+            syncLayoutControls() {
+                const settings = this.visualizer.getLayoutSettings();
+                this.layoutSettings.strongGravityMode = settings.strongGravityMode;
+                this.layoutSettings.gravity = settings.gravity;
+                this.layoutSettings.scalingRatio = settings.scalingRatio;
+                this.keepComponentsNear = this.visualizer.getKeepComponentsNear();
+                this.layoutStyle = this.visualizer.getLayoutStyle();
             },
 
             zoomIn() {

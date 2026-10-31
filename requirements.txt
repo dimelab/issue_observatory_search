@@ -69,6 +69,7 @@ pytest==7.4.4
 pytest-asyncio==0.23.3
 pytest-cov==4.1.0
 pytest-mock==3.12.0
+fakeredis[lua]==2.40.0  # Redis double (with Lua) for the search limits tests
 factory-boy==3.3.0
 faker==22.0.0
 # httpx==0.26.0  # Already listed in Web Scraping section

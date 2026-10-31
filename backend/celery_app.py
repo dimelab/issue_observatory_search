@@ -15,6 +15,7 @@ celery_app = Celery(
         "backend.tasks.scraping_tasks",
         "backend.tasks.analysis_tasks",
         "backend.tasks.network_tasks",
+        "backend.tasks.search_tasks",
     ],
 )
 
@@ -32,6 +33,7 @@ celery_app.conf.update(
         "backend.tasks.scraping_tasks.*": {"queue": "scraping"},
         "backend.tasks.analysis_tasks.*": {"queue": "analysis"},
         "backend.tasks.network_tasks.*": {"queue": "networks"},
+        "backend.tasks.search_tasks.*": {"queue": "search"},
         "backend.tasks.advanced_search_tasks.*": {"queue": "search"},
     },
 
@@ -42,6 +44,11 @@ celery_app.conf.update(
     # Task time limits
     task_soft_time_limit=300,  # 5 minutes soft limit
     task_time_limit=600,  # 10 minutes hard limit
+
+    # A task that is not acknowledged within this is handed to another worker. With
+    # acks_late that is every running task, so it must be longer than the longest one
+    # (search tasks may run for 4 hours).
+    broker_transport_options={"visibility_timeout": 6 * 3600},
 
     # Task result settings
     result_expires=3600,  # 1 hour
@@ -66,6 +73,14 @@ celery_app.conf.update(
 
     # Beat scheduler (for periodic tasks)
     beat_schedule={
+        # A search whose worker was killed is not redelivered by Redis for hours: restart it
+        # when its heartbeat has lapsed. Needs celery_beat. The default queue, so that a
+        # worker busy with long searches cannot hold it up.
+        "recover-stalled-searches": {
+            "task": "backend.tasks.search_tasks.recover_stalled_searches",
+            "schedule": 60.0,
+            "options": {"queue": "celery"},
+        },
         # Example: cleanup old jobs every day
         # "cleanup-old-jobs": {
         #     "task": "backend.tasks.scraping_tasks.cleanup_old_jobs",

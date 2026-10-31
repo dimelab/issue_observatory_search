@@ -23,6 +23,10 @@ class SearchSession(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Searches run in a Celery task: the task that was queued for this session, and why
+    # the session failed if it did. updated_at doubles as the running search's heartbeat.
+    celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

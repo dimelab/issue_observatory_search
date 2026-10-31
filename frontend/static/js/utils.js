@@ -325,8 +325,26 @@ function authHeaders(extra = {}) {
     return headers;
 }
 
+/**
+ * Expected wait for a Serper search. Google holds back the result links for about 30
+ * seconds after each search, and the server searches `concurrency` keywords at the same
+ * time (settings.search_concurrency), so the time is one round of about 35 seconds per
+ * `concurrency` keywords, however many pages of results each keyword has.
+ * @param {number} keywordCount - Keywords to search
+ * @param {number} concurrency - Keywords the server searches at once
+ * @returns {string} For example "about 35 seconds" or "about 3 minutes"
+ */
+function searchWaitEstimate(keywordCount, concurrency) {
+    const rounds = Math.ceil(keywordCount / Math.max(1, concurrency));
+    const seconds = rounds * 35;
+    if (seconds < 60) return 'about ' + seconds + ' seconds';
+    const minutes = Math.ceil(seconds / 60);
+    return 'about ' + minutes + (minutes === 1 ? ' minute' : ' minutes');
+}
+
 // Export utility functions to window object
 window.utils = {
+    searchWaitEstimate,
     debounce,
     throttle,
     formatFileSize,

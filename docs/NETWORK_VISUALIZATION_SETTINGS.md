@@ -173,71 +173,127 @@ degree) describes the visible subgraph.
 ### Layout
 
 **Start Layout** runs ForceAtlas2 on the full graph (including nodes hidden by filters),
-on the main thread, and stops by itself once the nodes stop moving. **Stop Layout** ends it
+on the main thread, and stops by itself once the drawing has settled. **Stop Layout** ends it
 sooner. A network without stored positions starts on a circle, so the first thing to do is
 press Start Layout.
 
-The settings panel (gear icon):
+The **Layout** switch in the toolbar chooses between two styles:
 
-| Setting | Effect |
-|---------|--------|
-| **Strong gravity** (on by default) | Gravity that grows with distance from the centre |
-| **Stop automatically when settled** (on by default) | Stops the layout once nodes barely move; untick to run until you press Stop |
-| **Gravity** (0-5) | With strong gravity: higher is more compact and even, lower is looser with small groups further out |
-| **Scaling** (1-50) | Repulsion between nodes: higher spreads the layout out relative to gravity |
-| **Edge Weight** (0-2) | How much edge weights pull connected nodes together |
-| **Barnes-Hut** | Approximates repulsion; faster on large graphs |
+- **Compact** (the default) uses strong gravity. Everything stays close to the centre, the layout
+  settles and fills the view, and small pieces of the network cannot drift away. The price is a
+  round drawing whatever the structure of the network.
+- **Organic** uses the defaults of Gephi's ForceAtlas2, so the drawing takes the shape of the
+  data: a chain of topics comes out as a chain, a strip as a strip, separate topics as separate
+  clusters. Only networks that really are round (one big dense core) come out round. It also
+  turns on *Keep small components near the main cluster* (see below).
+
+Switching starts the layout from the current positions. If you change one of the settings below
+by hand, the switch shows **Custom**; changing it back shows the style again.
+
+The settings panel (gear icon) shows what each style sets, and the rest:
+
+| Setting | Compact | Organic | Effect |
+|---------|---------|---------|--------|
+| **Strong gravity** | on | off | Gravity that grows with the distance from the centre. Keeps everything compact, but makes every network round; with it, lowering Gravity (about 0.05 is gentle) gives a looser result |
+| **Gravity** (0-5) | 1 | 1 | Pull towards the centre. Higher: more compact and rounder. Lower: looser |
+| **Scaling** (1-50) | 10 | 2 from 100 nodes, 10 below (Gephi's rule) | Repulsion between nodes. Mostly changes the scale of the drawing, not its shape |
+| **Keep small components near the main cluster** | off | on | Holds separate small pieces of the network just outside the main cluster (see below) |
+| **Stop automatically when settled** (on) | | | Stops the layout once it has settled; untick to run until you press Stop |
+| **Edge Weight** (0-2) | | | How much edge weights pull connected nodes together |
+| **Barnes-Hut** | | | Approximates repulsion; faster on large graphs |
 
 Changes apply to a running layout on the next frame. If the layout is stopped, including
 after it settled, moving a setting starts it again, so a slider always shows its effect.
 
-**Why strong gravity is the default.** Classic ForceAtlas2 gravity has the same strength
-everywhere. A big dense core then pushes small, sparsely connected subgraphs far out, they
-keep drifting, and because the view fits the whole drawing the core ends up as a tight blob
-with overlapping nodes (the Gravity and Scaling sliders barely change this). Strong gravity
-keeps those subgraphs near, the layout settles, and the core fills the view. On the test
-networks, with the same number of iterations as the old defaults (classic gravity):
+**Why Compact is round.** It uses strong gravity with Gravity 1, which is a much harder pull
+than ForceAtlas2's own recommendation for strong gravity (0.05). A force that grows with the
+distance squeezes every network into the same round blob; the structure only shows inside it.
+Measured on synthetic networks (headless Chrome, the layout run for 1,500 iterations with the
+settings of the two styles; aspect is the shorter over the longer principal axis of the
+drawing, 1 is a circle; fidelity is the correlation between on-screen distance and the number
+of edges between two nodes, higher is better):
 
-| Network | Core's share of the drawing, old to new | Overlapping node pairs at the fit view, old to new |
-|---------|-----------------------------------------|----------------------------------------------------|
-| 835 nodes (real pipeline output) | 0.22 to 0.86 | 7,690 to 66 |
-| 2,612 nodes (dense core plus 160 small subgraphs, synthetic) | 0.37 to 0.85 | 641,874 to 4,708 |
+| Network | Aspect, Compact to Organic | Fidelity, Compact to Organic |
+|---------|--------------------|----------------------|
+| 36x8 strip (360 nodes) | 0.98 to 0.11 | 0.54 to 0.99 |
+| Chain of 6 topics (588) | 0.98 to 0.05 | 0.56 to 0.91 |
+| Tree (520) | 1.00 to 0.61 | 0.34 to 0.67 |
+| 4 topics, few links between (600) | 0.99 to 0.96 | 0.54 to 0.61 |
+| One dense core with hubs (629) | 0.99 to 0.96 | 0.23 to 0.35 |
 
-(Core share is the square root of the area of the 5th-95th percentile box over the area of
-the bounding box; 1 means the core uses the whole drawing.) Untick **Strong gravity** to get
-classic ForceAtlas2 back.
+The last two are round in both versions because their structure is round. What changes is
+how well the topics separate: the distance between topic centres divided by the spread
+inside a topic goes from 3.1 to 6.1 (600 nodes), and from 3.8 to 7.5 on a network of
+2,800 nodes with 8 topics, where Compact gives a single disc.
+
+**What Organic costs.** Without the pull towards the centre, nodes sit in tight clumps: the
+single-link neighbours of a hub (a keyword with many sites that appear nowhere else) are
+packed around it, and the nodes of a cluster, a chain or a strip lie close together, the way
+they do in Gephi. At the fit-to-screen view, in the test networks of chains, strips, trees,
+stars and 8 large clusters, 67-98% of the nodes have a neighbour closer than 0.8% of the
+main cluster's width, against 0-8% in Compact. Zoom in, or lower **Node Size**, to read
+them. Gephi's answer is a separate overlap-removal step (Noverlap), which the viewer
+does not have.
+
+**Keeping small components near.** Classic ForceAtlas2 gravity is the same strength
+everywhere. A big dense core pushes small, sparsely connected pieces (a few sites that share
+one keyword) far out, they keep drifting, and because the view fits the whole drawing the
+core ends up small on screen. Gephi has the same behaviour. Strong gravity fixed this only by
+making everything round, and raising Gravity does it only by bringing the round shape back
+(raising Gravity from 1 to 16 changes the aspect of the test strip from 0.10 to 0.97, while on
+the network with stray pieces the main cluster's share of the width only goes from 0.11 to
+0.35). So the layout loop does it separately: after every
+frame, a component other than the main one whose edge would lie further than 1.3 times the main
+component's radius (95th percentile of the distance from its centre) from the main component's
+centre is moved back as a whole, and the drawing is re-centred on the main component (the
+pieces crowd one side of it and would otherwise push the whole drawing along without end).
+Nothing inside a component changes, and networks with a single component are not affected.
+In Organic, the share of the drawing's width that the main cluster uses, without and with it:
+
+| Network | Main cluster's share of the width |
+|---------|-----------------------------------|
+| 506 nodes, 18 small pieces | 0.14 to 0.87 |
+| 569 nodes, 60 small pieces | 0.07 to 0.77 |
+| 2,553 nodes, 40 small pieces | 0.10 to 1.00 |
+
+It only applies when the largest component holds at least half of the nodes; in a network of
+many similar-sized pieces (or with no edges) there is no main cluster to gather them
+around, and the layout is plain ForceAtlas2. Untick the setting to get Gephi's behaviour. In
+Compact it is off, because strong gravity already keeps the pieces near; ticking it there
+shows **Custom**.
 
 **Speed.** Each animation frame runs as many ForceAtlas2 iterations as fit in 10 ms (more
 when drawing is slow, up to 40 ms, never more than 40 iterations) instead of one, then
-redraws once. The count adapts as it goes. The 835-node network settled after about 450
-iterations and the 2,612-node one after about 330 (software WebGL, which draws much slower
-than a GPU: 1.6 s and 4.8 s; the old loop took 4.6 s and 33 s for the same graphs).
+redraws once. The count adapts as it goes. With software WebGL (much slower than a GPU),
+the 29-node test network settled in about 1 s, the 588-node chain in about 2 s and the
+2,796-node one in about 8 s.
 
-**Settling.** Every 50 iterations the layout compares node positions with 50 iterations
-earlier. It stops when nodes moved on average less than 0.05% of the core's size per
-iteration (`LAYOUT_SETTLE_MOVE`) and at least 100 iterations have run. The core's size is
-the 5th-95th percentile range of the positions, not the bounding box, because outliers
-inflate the box. Classic gravity can also trigger it, usually earlier, while its core is
-still slowly collapsing. The slow-down parameter is set to `1 + ln(nodes)`
-(ForceAtlas2's own recommendation) when a network loads; it has no slider.
+**Settling.** The layout stops when two things hold. First, nodes barely move: every 50
+iterations it compares node positions with 50 iterations earlier, and the nodes of the main
+component must have moved on average less than 0.05% of the core's size per iteration
+(`LAYOUT_SETTLE_MOVE`), with at least 100 iterations run. The core's size is the 5th-95th
+percentile range of the positions, not the bounding box, because outliers inflate the box.
+Second, the shape is steady: the two principal axes of the drawing must have changed by less
+than 5% over the last 200 iterations (`LAYOUT_SHAPE_SPAN`, `LAYOUT_SHAPE_TOLERANCE`). The
+second condition matters for chains, strips and trees, which stretch slowly: their nodes move
+little per iteration, so the first condition alone stopped the 588-node chain after about 340
+iterations at aspect 0.27, where it ends up at 0.05; with both it stops after about 1,100
+iterations at 0.07. Small components held at the edge of their allowed zone keep sliding
+along it, so only the main component is judged. The slow-down parameter is set to
+`1 + ln(nodes)` (ForceAtlas2's own recommendation) when a network loads; it has no slider.
 
-**Does stopping early cost quality?** Measured with layout-quality metrics that do not
-depend on scale (835-node network with the backend's communities; 2,612-node network without;
-five random starting layouts per setting, mean and spread):
+How long it takes to stop, on the synthetic networks (Barnes-Hut on): a few hundred
+iterations for networks of clusters and for fragmented ones, roughly 1,000 to 2,500 for chains,
+strips and trees, and up to a few thousand for a dense core with hubs, whose nodes keep
+jittering a little with the approximate repulsion. Pressing Stop earlier is always possible.
 
-- *Running longer changes nothing measurable.* Stress (how well on-screen distances match graph
-  distances), neighbourhood preservation and community separation are flat from about 450 to
-  5,000 iterations; the improvement happens in the first few hundred. With a slow-down of 1 the
-  layout never settles (still jittering after 13,000 iterations) and is no better for it.
-- *Strong gravity keeps the structure.* At the same slow-down, strong and classic gravity give the
-  same stress (0.19) and the same community separation (0.776 vs 0.776).
-- *One small real cost.* The automatic slow-down `1 + ln(nodes)` that lets the layout settle gives
-  somewhat less clear communities on the 835-node network than a slow-down of 1 (within/between
-  community distance 0.87 vs 0.77, lower is clearer) and about 12% lower neighbourhood
-  preservation. On the 2,612-node network it is much better locally (neighbour preservation 0.20
-  vs 0.09 at slow-down 1), which is why it is the default.
-- LinLog mode, which ForceAtlas2 offers to emphasise clusters, was worse on all of these
-  measures here (stress 0.23-0.33 instead of 0.19) and is not used.
+**Quality of stopping early.** The measurements of the earlier versions (835-node network
+with the backend's communities and 2,612-node network without, five random starting layouts
+per setting) were made with strong gravity: stress, neighbourhood preservation and community
+separation were flat from about 450 to 5,000 iterations, strong and classic gravity gave the
+same stress, and LinLog mode, which ForceAtlas2 offers to emphasise clusters, was worse on
+all measures (stress 0.23-0.33 instead of 0.19) and is not used. They do not carry over to
+the Organic style, where chains and strips keep stretching slowly, which is why the second stop condition exists.
 
 If you would rather watch it keep adjusting, untick **Stop automatically when settled**.
 

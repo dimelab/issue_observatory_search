@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings."""
 from typing import Optional
-from pydantic import PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     google_custom_search_api_key: Optional[str] = None
     google_custom_search_engine_id: Optional[str] = None
     serper_api_key: Optional[str] = None  # Serper (google.serper.dev) API key
+
+    serper_base_url: str = "https://google.serper.dev"  # only changed to test against a fake
+
+    # Search speed. A Serper search waits about 30 seconds for Google to release the
+    # result links (SerperSearch), so keywords are searched in parallel. Searches run in
+    # the search worker; these limits keep several users and processes within what the
+    # Serper account allows (its request limit is 50 per second).
+    search_concurrency: int = Field(default=20, ge=1)  # keywords at once within one session
+    search_global_concurrency: int = Field(default=30, ge=1)  # keywords at once, all sessions and workers
+    serper_resolve_concurrency: int = Field(default=60, ge=1)  # /resolve requests in flight, all workers
+    serper_rate_limit_per_second: int = Field(default=35, ge=1)  # requests per second, all workers
+    search_max_active_per_user: int = Field(default=1, ge=1)  # sessions one user searches at once
+    # A running search reports every sixth of this; a session that says "processing" but has not
+    # reported for this long lost its worker and is restarted by the recovery task
+    search_stale_seconds: int = Field(default=180, ge=12)
 
     # Phase 7: SERP API Configuration
     serpapi_key: Optional[str] = None

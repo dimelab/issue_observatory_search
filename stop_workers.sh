@@ -25,6 +25,8 @@ stop_worker() {
 stop_worker "scraping"
 stop_worker "analysis"
 stop_worker "networks"
+stop_worker "search"
+stop_worker "beat"
 
 # Also try to stop any workers by name
 echo ""

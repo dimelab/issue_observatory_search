@@ -13,6 +13,7 @@ from backend.models.scraping import ScrapingJob
 from backend.models.search import SearchSession, SearchResult
 from backend.models.website import Website, WebsiteContent
 from backend.core.scrapers.playwright_scraper import PlaywrightScraper
+from backend.core.search_engines.base import is_google_redirect
 from backend.utils.content_extraction import filter_same_domain, filter_by_tlds
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,18 @@ def scrape_session_task(self, job_id: int) -> dict:
                     .order_by(SearchResult.rank)
                 )
                 search_results = result.scalars().all()
+
+                # Results stored while Google redirect links (google.com/goto)
+                # were not resolved are not pages: scraping them fetches Google
+                redirects = [r for r in search_results if is_google_redirect(r.url)]
+                if redirects:
+                    logger.warning(
+                        f"ScrapingJob {job_id}: skipping {len(redirects)} stored "
+                        f"Google redirect link(s); search those keywords again"
+                    )
+                    search_results = [
+                        r for r in search_results if not is_google_redirect(r.url)
+                    ]
 
                 if not search_results:
                     job.status = "completed"

@@ -21,7 +21,7 @@ python scripts/check_celery_tasks.py
 
 ### Required Workers
 
-The application needs **3 separate workers** for different queues:
+The application needs **4 separate workers** for different queues:
 
 #### 1. Scraping Worker
 ```bash
@@ -38,6 +38,19 @@ celery -A backend.celery_app worker -Q analysis -n analysis_worker@%h --loglevel
 celery -A backend.celery_app worker -Q networks -n networks_worker@%h --loglevel=info
 ```
 
+#### 4. Search Worker (REQUIRED FOR SEARCHES)
+Searches run here, not in the web server. A search task lasts minutes (it waits for Google), so it has
+a worker of its own, several searches at a time:
+```bash
+celery -A backend.celery_app worker -Q search -n search_worker@%h -c 4 --prefetch-multiplier=1 -O fair --loglevel=info
+```
+`-c` is how many searches run at once (the `SEARCH_WORKER_CONCURRENCY` setting); prefetch 1 and `-O fair`
+keep a busy process from holding queued searches that another process could start. Without this worker a
+search stays "queued". It also needs **Celery beat** (`celery -A backend.celery_app beat`): its
+`recover_stalled_searches` task, every minute, restarts a search whose worker was killed (the default
+queue, so the generic worker runs it). The limits that keep several users within what the Serper account allows are in
+`.env` (see DEPLOYMENT.md, "How searches run").
+
 ### Run Multiple Workers in Background
 
 ```bash
@@ -45,6 +58,7 @@ celery -A backend.celery_app worker -Q networks -n networks_worker@%h --loglevel
 celery -A backend.celery_app worker -Q scraping -n scraping_worker@%h --loglevel=info --logfile=logs/scraping.log --detach
 celery -A backend.celery_app worker -Q analysis -n analysis_worker@%h --loglevel=info --logfile=logs/analysis.log --detach
 celery -A backend.celery_app worker -Q networks -n networks_worker@%h --loglevel=info --logfile=logs/networks.log --detach
+celery -A backend.celery_app worker -Q search -n search_worker@%h -c 4 --prefetch-multiplier=1 -O fair --loglevel=info --logfile=logs/search.log --detach
 ```
 
 ### Monitor Workers

@@ -62,6 +62,38 @@ start_worker "scraping" "scraping_worker"
 start_worker "analysis" "analysis_worker"
 start_worker "networks" "networks_worker"
 
+# Searches: their own worker, several searches at a time (see SEARCH_WORKER_CONCURRENCY)
+echo "Starting worker for queue: search"
+celery -A backend.celery_app worker \
+    -Q search \
+    -n search_worker@%h \
+    -c ${SEARCH_WORKER_CONCURRENCY:-4} \
+    --prefetch-multiplier=1 \
+    -O fair \
+    --loglevel=info \
+    --logfile=logs/celery_search.log \
+    --pidfile=logs/celery_search.pid \
+    --detach
+if [ $? -eq 0 ]; then
+    echo "  ✓ Worker started for search queue"
+else
+    echo "  ✗ Failed to start worker for search queue"
+fi
+
+# Beat: restarts a search whose worker was killed (recover_stalled_searches, every minute)
+echo "Starting Celery beat"
+celery -A backend.celery_app beat \
+    --loglevel=info \
+    --logfile=logs/celery_beat.log \
+    --pidfile=logs/celery_beat.pid \
+    -s logs/celerybeat-schedule \
+    --detach
+if [ $? -eq 0 ]; then
+    echo "  ✓ Beat started"
+else
+    echo "  ✗ Failed to start beat"
+fi
+
 echo ""
 echo "======================================================"
 echo "All workers started!"
@@ -73,6 +105,7 @@ echo "To view logs:"
 echo "  tail -f logs/celery_scraping.log"
 echo "  tail -f logs/celery_analysis.log"
 echo "  tail -f logs/celery_networks.log"
+echo "  tail -f logs/celery_search.log"
 echo ""
 echo "To stop all workers:"
 echo "  ./stop_workers.sh"

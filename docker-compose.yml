@@ -99,12 +99,48 @@ services:
       # PYTHONPATH=/app to resolve the backend package.
       - .:/app
       - app_data:/app/data
-    # One worker across every routed queue. Tasks whose queue has no consumer sit
-    # in Redis forever, so this list must cover celery_app.conf.task_routes.
+    # One worker across the queues of the short and medium tasks. Tasks whose queue has
+    # no consumer sit in Redis forever, so this list plus the search worker below must
+    # cover celery_app.conf.task_routes.
     command: >
       celery -A backend.celery_app:celery_app worker
       --loglevel=info
-      -Q celery,scraping,analysis,networks,search
+      -Q celery,scraping,analysis,networks
+    restart: unless-stopped
+
+  # Searches get a worker of their own: a search task lasts minutes, mostly waiting for
+  # Google, and must not occupy a slot that scraping and analysis need.
+  celery_search_worker:
+    build: *app_build
+    image: issue_observatory:latest
+    container_name: issue_observatory_celery_search_worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment: *app_env
+    volumes:
+      - .:/app
+      - app_data:/app/data
+    # -c is how many searches run at the same time, whoever started them (a user's own
+    # searches are further limited by SEARCH_MAX_ACTIVE_PER_USER, and every worker
+    # shares the Serper limits in .env). Prefetch 1 and -O fair: a busy process must not
+    # hold queued searches that another process could start.
+    command: >
+      celery -A backend.celery_app:celery_app worker
+      --loglevel=info
+      -Q search
+      -n search@%h
+      -c ${SEARCH_WORKER_CONCURRENCY:-4}
+      --prefetch-multiplier=1
+      -O fair
+    # A restart gives running searches this long to finish. One that does not is queued
+    # again by recover_stalled_searches (celery_beat) once its heartbeat has lapsed, and
+    # carries on with the keywords left.
+    stop_grace_period: 60s
     restart: unless-stopped
 
   celery_beat:

@@ -10,12 +10,13 @@
             <div class="flex-1">
                 <div class="flex items-center space-x-3">
                     <h1 class="text-3xl font-bold text-gray-900">{{ session.name }}</h1>
-                    <span class="px-3 py-1 rounded-full text-sm font-medium
+                    <span id="session-status" class="px-3 py-1 rounded-full text-sm font-medium
                         {% if session.status == 'completed' %}bg-green-100 text-green-800
                         {% elif session.status == 'processing' %}bg-yellow-100 text-yellow-800
                         {% elif session.status == 'failed' %}bg-red-100 text-red-800
+                        {% elif session.status == 'pending' %}bg-blue-100 text-blue-800
                         {% else %}bg-gray-100 text-gray-800{% endif %}">
-                        {{ session.status }}
+                        {{ 'queued' if session.status == 'pending' else session.status }}
                     </span>
                 </div>
                 <div class="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-500">
@@ -66,6 +67,18 @@
             </div>
         </div>
 
+        <!-- Search progress: queued, running (with progress bar), stopped or failed -->
+        <div id="search-status" class="hidden mb-4 rounded-md border p-4 text-sm" role="status">
+            <p id="search-status-text"></p>
+            <div id="search-status-bar" class="hidden mt-3 h-2 w-full rounded-full bg-blue-100">
+                <div id="search-status-fill" class="h-2 rounded-full bg-blue-600 transition-all" style="width: 0%"></div>
+            </div>
+            <button id="search-again-btn" type="button" onclick="searchAgain()"
+                    class="hidden mt-3 inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60">
+                Search again
+            </button>
+        </div>
+
         <!-- Statistics -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-gray-200">
             <div>
@@ -74,7 +87,7 @@
             </div>
             <div>
                 <p class="text-xs text-gray-500 uppercase tracking-wide">Results</p>
-                <p class="text-2xl font-bold text-gray-900">{{ session.result_count or 0 }}</p>
+                <p id="stat-results" class="text-2xl font-bold text-gray-900">{{ session.result_count or 0 }}</p>
             </div>
             <div>
                 <p class="text-xs text-gray-500 uppercase tracking-wide">Unique Domains</p>
@@ -91,7 +104,7 @@
     <div class="bg-white rounded-lg shadow-md">
         <div class="p-6 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-xl font-bold text-gray-900">Search Queries</h2>
-            {% if session.status != 'processing' %}
+            {% if not session.busy %}
             <div class="flex items-center gap-3">
                 <button
                     type="button"
@@ -113,6 +126,9 @@
                     </svg>
                     <span id="run-pending-label">Search {{ session.pending_query_count }} new {{ 'keyword' if session.pending_query_count == 1 else 'keywords' }}</span>
                 </button>
+                {% if session.search_engine == 'serper' %}
+                <span id="run-pending-note" class="text-xs text-gray-500"></span>
+                {% endif %}
                 {% endif %}
             </div>
             {% endif %}
@@ -363,12 +379,114 @@ document.getElementById('add-keywords-modal').addEventListener('click', function
     }
 });
 
-// Search for the keywords that were added but not yet collected
-async function runPendingKeywords() {
-    const button = document.getElementById('run-pending-btn');
-    const label = document.getElementById('run-pending-label');
+// Searches run in a worker on the server: the page shows where the search stands and
+// polls while it runs. SEARCH_CONCURRENCY is how many keywords the server searches at
+// once (from .env); it gives the expected time of a Serper search.
+const SEARCH_CONCURRENCY = {{ search_concurrency }};
+const SESSION_ENGINE = {{ session.search_engine|tojson }};
+const PENDING_KEYWORDS = {{ session.pending_query_count }};
+let progress = {{ progress|tojson }};
+
+const BADGE_COLOURS = {
+    completed: 'bg-green-100 text-green-800',
+    processing: 'bg-yellow-100 text-yellow-800',
+    failed: 'bg-red-100 text-red-800',
+    pending: 'bg-blue-100 text-blue-800'
+};
+const BANNER_COLOURS = {
+    info: 'border-blue-200 bg-blue-50 text-blue-900',
+    warn: 'border-yellow-200 bg-yellow-50 text-yellow-900',
+    error: 'border-red-200 bg-red-50 text-red-900'
+};
+
+// The banner under the title: queued, running (with a progress bar), stopped or failed
+function renderSearchStatus(p) {
+    const box = document.getElementById('search-status');
+    const bar = document.getElementById('search-status-bar');
+    const again = document.getElementById('search-again-btn');
+    const leave = ' You can leave this page: the search keeps running on the server.';
+    const done = p.completed + p.failed;
+    let tone = null;
+    let message = '';
+    let showBar = false;
+    let showAgain = false;
+
+    if (p.status === 'pending') {
+        tone = 'info';
+        message = 'Queued: the search starts as soon as a worker is free.' + leave;
+    } else if (p.status === 'processing' && !p.stale) {
+        tone = 'info';
+        showBar = true;
+        message = 'Searching: ' + done + ' of ' + p.total + ' keywords done' +
+            (p.failed ? ' (' + p.failed + ' failed)' : '') + ', ' + p.results + ' results so far.';
+        if (SESSION_ENGINE === 'serper' && p.total - done > 0) {
+            message += ' Expected ' + searchWaitEstimate(p.total - done, SEARCH_CONCURRENCY) + ' more.';
+        }
+        message += leave;
+    } else if (p.status === 'processing') {
+        tone = 'warn';
+        showAgain = true;
+        message = 'This search seems to have stopped: no progress has been reported for a few ' +
+            'minutes, perhaps because the worker was restarted. Search again to carry on ' +
+            'with the keywords that are left.';
+    } else if (p.status === 'failed') {
+        tone = 'error';
+        showAgain = true;
+        message = 'The search failed' +
+            (p.error_message ? ': ' + p.error_message.replace(/[.!\s]+$/, '') + '.' : '.') +
+            ' Keywords already searched are kept.';
+    }
+
+    if (tone) box.className = 'mb-4 rounded-md border p-4 text-sm ' + BANNER_COLOURS[tone];
+    else box.className = 'hidden';
+    document.getElementById('search-status-text').textContent = message;
+    bar.classList.toggle('hidden', !showBar);
+    document.getElementById('search-status-fill').style.width =
+        (p.total ? Math.round(100 * done / p.total) : 0) + '%';
+    again.classList.toggle('hidden', !showAgain);
+
+    const badge = document.getElementById('session-status');
+    badge.textContent = p.status === 'pending' ? 'queued' : p.status;
+    badge.className = 'px-3 py-1 rounded-full text-sm font-medium ' + (BADGE_COLOURS[p.status] || 'bg-gray-100 text-gray-800');
+}
+
+async function pollProgress() {
+    try {
+        const response = await fetch('/api/search/session/{{ session.id }}/progress', {
+            headers: authHeaders()
+        });
+        if (!response.ok) return;  // try again on the next beat
+        progress = await response.json();
+    } catch (error) {
+        return;  // a network hiccup: try again on the next beat
+    }
+    renderSearchStatus(progress);
+    document.getElementById('stat-results').textContent = progress.results;
+
+    if (progress.status === 'completed' || progress.status === 'failed') {
+        clearInterval(pollTimer);
+        window.location.reload();  // the keyword list and statistics are rendered by the server
+    } else if (progress.stale) {
+        clearInterval(pollTimer);
+    }
+}
+
+renderSearchStatus(progress);
+let pollTimer = null;
+if (progress.status === 'pending' || (progress.status === 'processing' && !progress.stale)) {
+    pollTimer = setInterval(pollProgress, 3000);
+}
+
+// Serper searches wait for Google: say how long the queued keywords will take
+const pendingNote = document.getElementById('run-pending-note');
+if (pendingNote) {
+    pendingNote.textContent = 'Expected wait ' + searchWaitEstimate(PENDING_KEYWORDS, SEARCH_CONCURRENCY);
+}
+
+// Queue the search for a worker; the page then shows its progress
+async function queueSearch(button, label, idleLabel) {
     button.disabled = true;
-    label.textContent = 'Searching...';
+    label.textContent = 'Queueing...';
     try {
         const response = await fetch('/api/search/session/{{ session.id }}/queries/run', {
             method: 'POST',
@@ -378,12 +496,27 @@ async function runPendingKeywords() {
             window.location.reload();
             return;
         }
-        alert(await errorDetail(response, 'Failed to search for the new keywords'));
+        alert(await errorDetail(response, 'Failed to start the search'));
     } catch (error) {
         alert('An error occurred');
     }
     button.disabled = false;
-    label.textContent = 'Search {{ session.pending_query_count }} new {{ "keyword" if session.pending_query_count == 1 else "keywords" }}';
+    label.textContent = idleLabel;
+}
+
+// Search for the keywords that were added but not yet collected
+function runPendingKeywords() {
+    queueSearch(
+        document.getElementById('run-pending-btn'),
+        document.getElementById('run-pending-label'),
+        'Search {{ session.pending_query_count }} new {{ "keyword" if session.pending_query_count == 1 else "keywords" }}'
+    );
+}
+
+// From the banner after a failed or stopped search
+function searchAgain() {
+    const button = document.getElementById('search-again-btn');
+    queueSearch(button, button, 'Search again');
 }
 
 // Handle scraping form submission

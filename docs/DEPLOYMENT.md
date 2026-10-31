@@ -104,6 +104,57 @@ asyncio.run(main())
 "
 ```
 
+**How searches run, and results from `google.com/goto`.** A search is queued by the web request and
+done by the `celery_search_worker` service (queue `search`), so it keeps running if the user closes the
+page or the backend restarts; the session page shows its progress (`GET /api/search/session/{id}/progress`,
+polled every 3 seconds). A session is `pending` (queued), `processing`, then `completed` or `failed`. If the
+search worker is down, searches wait in the queue until it is back; if Redis is down the page says the
+queue is not available.
+
+Why it is a worker: since 30 Oct 2026 Google returns result links beyond the top three as redirects
+(`google.com/goto?url=...`). `SerperSearch` sends each page of results to Serper's free `/resolve` endpoint
+for the real URLs. That waits for Google, so one keyword takes about 30 seconds instead of one or two.
+Keywords are searched in parallel, within what the Serper account allows (50 requests per second). The
+limits in `.env`, shared by all workers through Redis (`backend/core/concurrency.py`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SEARCH_WORKER_CONCURRENCY` | 4 | Searches (sessions) running at once, all users (`-c` of the search worker) |
+| `SEARCH_MAX_ACTIVE_PER_USER` | 1 | Sessions one user searches at once; their others show as queued |
+| `SEARCH_CONCURRENCY` | 20 | Keywords at once within one session |
+| `SEARCH_GLOBAL_CONCURRENCY` | 30 | Keywords at once across all sessions and workers |
+| `SERPER_RESOLVE_CONCURRENCY` | 60 | `/resolve` requests in flight across all workers |
+| `SERPER_RATE_LIMIT_PER_SECOND` | 35 | Requests per second to Serper across all workers, paced evenly (a burst of 3 is allowed): against the fake Serper the busiest second was 38. Serper's limit is 50 |
+| `SEARCH_STALE_SECONDS` | 180 | A session saying `processing` with no report for this long lost its worker and is restarted |
+
+A hundred keywords take roughly 3 minutes for one user, about 50 minutes one after another; several users
+share the same budget. If the worker log shows `rate limit hit, waiting ...` often, Serper is throttling:
+lower the limits (a 429 is waited out and retried up to 3 times, then the keyword fails; search again to
+retry it). If Redis is unreachable while a search runs, the shared limits are skipped (logged once a minute).
+
+**If the search worker is killed** (a container stopped hard, out of memory, a crash), Redis keeps the
+task it was running as "unacknowledged" for the broker's visibility timeout (6 hours), so it is *not*
+redelivered in time to matter (tested on a real Redis). Instead, a running search reports to its session
+every `SEARCH_STALE_SECONDS / 6` seconds, and the `recover_stalled_searches` task, run every minute by
+Celery beat, queues again any session that says `processing` but has not reported for
+`SEARCH_STALE_SECONDS` (default 180). It carries on with the keywords that were not stored (nothing is
+stored twice); the old task, if it is ever delivered, finds itself superseded. So expect a killed search to
+resume within about 4 minutes. After 3 automatic restarts the session is marked failed. **This needs
+`celery_beat`** (a compose service; `./start_workers.sh` starts it for local use). Before it picks the
+session up the page shows "This search seems to have stopped" with a **Search again** button, which does
+the same by hand. Sessions left `processing` by the old in-request searches (before this change) look
+the same: search again, or delete.
+
+A link that stays unresolved is dropped (logged as `dropped N result(s)`), and a failing `/resolve` fails
+the keyword with a message saying so. Searches stored between 30 Oct and the update hold redirect links
+that cannot be resolved any more. List them and search those keywords again:
+
+```bash
+docker compose exec backend python scripts/find_redirect_results.py
+```
+
+Scraping skips stored redirect links (`skipping N stored Google redirect link(s)` in the worker log).
+
 **Tasks never start.** The worker consumes `celery,scraping,analysis,networks,search`.
 If `task_routes` in `backend/celery_app.py` gains a new queue, add it to the
 worker's `-Q` list in `docker-compose.yml` or those tasks will never be picked up.

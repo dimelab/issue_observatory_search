@@ -1,17 +1,22 @@
 """Search service for executing and managing searches."""
+import asyncio
+import contextlib
 import hashlib
 import logging
-from datetime import datetime
-from typing import Optional
+import uuid
+from datetime import datetime, timedelta
+from typing import Optional, Union
 from urllib.parse import urlparse
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core.concurrency import RedisLimits
 from backend.core.search_engines.base import (
     SearchEngineBase,
     SearchResult as EngineSearchResult,
+    is_google_redirect,
 )
 from backend.core.search_engines.google_custom import GoogleCustomSearch
 from backend.core.search_engines.serper import SerperSearch
@@ -26,20 +31,52 @@ DEFAULT_MAX_RESULTS = 10
 DEFAULT_LANGUAGE = "da"
 DEFAULT_COUNTRY = "dk"
 
+# A search runs in a worker, which bumps its session's updated_at every heartbeat_every()
+# seconds. A session that says "processing" but was not bumped for stale_after() lost its
+# worker (crash, kill, restart) and may be taken over: the recovery task (search_tasks)
+# restarts it, or the user can search again. A queued session whose task vanished from
+# the queue (Redis wiped) is given up after QUEUED_STALE_AFTER so it can be started again.
+QUEUED_STALE_AFTER = timedelta(hours=24)
+
+
+def stale_after() -> timedelta:
+    """How long a "processing" session may go without reporting before it counts as lost."""
+    return timedelta(seconds=settings.search_stale_seconds)
+
+
+def heartbeat_every() -> float:
+    """Seconds between a running search's reports (a sixth of stale_after())."""
+    return settings.search_stale_seconds / 6
+
+# How long a keyword may hold one of the shared keyword slots before the lease runs out
+KEYWORD_SLOT_LEASE = 900.0
+
+
+class SearchQueueError(Exception):
+    """The search could not be queued (the broker is not reachable)."""
 
 class SearchService:
     """Service for managing search operations."""
 
-    def __init__(self, db: AsyncSession, user: User) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        user: User,
+        limits: Optional[RedisLimits] = None
+    ) -> None:
         """
         Initialize search service.
 
         Args:
             db: Database session
             user: Current user
+            limits: Limits shared by all workers (Redis); a search run by a
+                worker passes them so several users stay within what the
+                search account allows
         """
         self.db = db
         self.user = user
+        self.limits = limits
 
     async def create_session(
         self,
@@ -71,73 +108,279 @@ class SearchService:
         logger.info(f"Created search session {session.id} for user {self.user.id}")
         return session
 
-    async def execute_search(
-        self,
-        session: SearchSession,
-        queries: list[str],
-        search_engine: str,
-        max_results: int,
-        language: str = "da",
-        country: str = "dk",
-        allowed_domains: Optional[list[str]] = None
-    ) -> SearchSession:
+    @staticmethod
+    def is_stale(session: SearchSession, now: Optional[datetime] = None) -> bool:
+        """Whether a session says "processing" but its worker stopped reporting."""
+        now = now or datetime.utcnow()
+        return session.status == "processing" and now - session.updated_at > stale_after()
+
+    @staticmethod
+    def is_busy(session: SearchSession, now: Optional[datetime] = None) -> bool:
         """
-        Execute searches for multiple queries.
+        Whether a search is running or waiting its turn for this session, so
+        another must not be queued on top of it.
+        """
+        now = now or datetime.utcnow()
+        if session.status == "processing":
+            return now - session.updated_at <= stale_after()
+        if session.status == "pending":
+            return (
+                session.celery_task_id is not None
+                and now - session.updated_at <= QUEUED_STALE_AFTER
+            )
+        return False
+
+    async def queue_session(
+        self,
+        name: str,
+        queries: list[str],
+        config: dict
+    ) -> tuple[SearchSession, int]:
+        """
+        Create a session with its keywords waiting as "pending" queries.
+
+        Nothing is searched here: start() queues the search for a worker.
 
         Args:
-            session: Search session
-            queries: List of query strings
-            search_engine: Search engine name
-            max_results: Max results per query
-            language: Language code (hl parameter)
-            country: Country code (gl parameter)
-            allowed_domains: Optional domain filter
+            name: Session name
+            queries: Keywords (a keyword given twice is kept once)
+            config: Session configuration (engine, max results, language,
+                country, domain filter)
 
         Returns:
-            SearchSession: Updated session
+            tuple: (the session, how many keywords it holds)
         """
-        # Update session status
-        session.status = "processing"
-        session.started_at = datetime.utcnow()
+        session = await self.create_session(name=name, config=config)
+        added, _ = await self.add_queries(session, queries)
+        return session, len(added)
+
+    def ensure_engine_configured(self, name: str) -> None:
+        """
+        Check that a search engine has its key, before a session is created.
+
+        Raises:
+            ValueError: If the engine is unknown or not configured
+        """
+        self._get_search_engine(name)
+
+    async def count_unfinished_queries(self, session_id: int) -> int:
+        """
+        Count the keywords a search of the session would still do: pending
+        ones, and ones a dead worker left claimed ("processing") when the
+        session is not being searched.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            int: Keywords in status "pending" or "processing"
+        """
+        result = await self.db.execute(
+            select(func.count(SearchQuery.id)).where(
+                SearchQuery.session_id == session_id,
+                SearchQuery.status.in_(("pending", "processing"))
+            )
+        )
+        return result.scalar() or 0
+
+    async def ensure_engines_configured(self, session: SearchSession) -> None:
+        """
+        Check that every engine the session's pending keywords need has its
+        key, so a missing key is reported to the user at once and not in a
+        worker.
+
+        Raises:
+            ValueError: If an engine is not configured
+        """
+        names = await self.db.execute(
+            select(SearchQuery.search_engine).where(
+                SearchQuery.session_id == session.id,
+                SearchQuery.status.in_(("pending", "processing"))
+            ).distinct()
+        )
+        for name in names.scalars():
+            self._get_search_engine(name)
+
+    async def start(self, session: SearchSession) -> str:
+        """
+        Queue the session's pending keywords for a search worker.
+
+        The session becomes "pending" ("queued") with the id of the task, which
+        is stored before the task is sent so the worker finds it. If the broker
+        cannot be reached the session is marked failed and SearchQueueError is
+        raised.
+
+        Args:
+            session: Session to search
+
+        Returns:
+            str: The Celery task id
+
+        Raises:
+            SearchQueueError: If the task could not be queued
+        """
+        task_id = str(uuid.uuid4())
+        session.status = "pending"
+        session.celery_task_id = task_id
+        session.error_message = None
+        session.completed_at = None
+        session.updated_at = datetime.utcnow()
         await self.db.commit()
 
-        # Get search engine instance
-        engine = self._get_search_engine(search_engine)
-
-        # Track seen URLs for deduplication across queries
-        seen_urls: set[str] = set()
+        # Imported here: the task module imports this service
+        from backend.tasks.search_tasks import run_search_session
 
         try:
-            for query_text in queries:
-                await self._execute_single_query(
-                    session=session,
-                    query_text=query_text,
-                    engine=engine,
-                    max_results=max_results,
-                    language=language,
-                    country=country,
-                    allowed_domains=allowed_domains,
-                    seen_urls=seen_urls
-                )
-
-            # Mark session as completed
-            session.status = "completed"
-            session.completed_at = datetime.utcnow()
-
+            # apply_async talks to Redis synchronously: keep it off the event loop
+            await asyncio.to_thread(
+                run_search_session.apply_async,
+                args=[session.id],
+                task_id=task_id,
+                queue="search",
+                retry_policy={"max_retries": 1, "interval_start": 0, "interval_max": 0.5},
+            )
         except Exception as e:
-            logger.error(f"Error executing searches for session {session.id}: {e}")
+            logger.error(f"Could not queue search session {session.id}: {e}")
             session.status = "failed"
+            session.error_message = (
+                "The search queue is not available. Try again in a moment."
+            )
             session.completed_at = datetime.utcnow()
-            raise
-
-        finally:
             await self.db.commit()
-            await self.db.refresh(session)
+            raise SearchQueueError(session.error_message) from e
 
-        logger.info(
-            f"Completed search session {session.id} with {len(queries)} queries"
+        logger.info(f"Queued search session {session.id} as task {task_id}")
+        return task_id
+
+    async def admit_session(self, session: SearchSession, task_id: str) -> str:
+        """
+        Decide whether the task may start searching this session now.
+
+        Called by the worker task each time it picks the session up. A user's
+        sessions are admitted one at a time (settings.search_max_active_per_user)
+        under a lock on the user's row, so two sessions cannot both slip in.
+
+        Args:
+            session: The session the task was queued for
+            task_id: Id of the task asking
+
+        Returns:
+            str: "run" (the session is now "processing" and any keyword a dead
+                run left claimed is pending again), "wait" (another search of
+                this session, or of this user, is running: ask again later),
+                "done" (nothing left to do) or "superseded" (a newer task was
+                queued for the session)
+        """
+        # Serialise this user's admissions
+        await self.db.execute(
+            select(User.id).where(User.id == session.user_id).with_for_update()
         )
-        return session
+        await self.db.refresh(session)
+
+        if session.celery_task_id and session.celery_task_id != task_id:
+            await self.db.commit()  # releases the lock
+            return "superseded"
+        if session.status in ("completed", "failed"):
+            await self.db.commit()  # releases the lock
+            return "done"
+
+        now = datetime.utcnow()
+        if session.status == "processing" and not self.is_stale(session, now):
+            await self.db.commit()  # releases the lock
+            return "wait"  # another worker is on it (or has just lost it: wait for the heartbeat to lapse)
+
+        running = await self.db.execute(
+            select(func.count(SearchSession.id)).where(
+                SearchSession.user_id == session.user_id,
+                SearchSession.id != session.id,
+                SearchSession.status == "processing",
+                SearchSession.updated_at > now - stale_after()
+            )
+        )
+        if (running.scalar() or 0) >= settings.search_max_active_per_user:
+            await self.db.commit()  # releases the lock
+            return "wait"
+
+        session.status = "processing"
+        session.error_message = None
+        session.started_at = session.started_at or now
+        session.updated_at = now
+        await self.db.execute(
+            update(SearchQuery)
+            .where(SearchQuery.session_id == session.id, SearchQuery.status == "processing")
+            .values(status="pending")
+        )
+        await self.db.commit()
+        return "run"
+
+    async def finish_session(
+        self, session: SearchSession, error: Optional[str] = None
+    ) -> None:
+        """
+        Close a session after its search: "completed" (keywords that failed
+        are marked on the keywords themselves), or "failed" with the reason.
+        On failure, keywords still claimed go back to "pending" so searching
+        again picks them up.
+
+        Args:
+            session: The session that was searched
+            error: Why the search stopped, if it did
+        """
+        now = datetime.utcnow()
+        if error:
+            await self.db.rollback()
+            await self.db.refresh(session)
+            await self.db.execute(
+                update(SearchQuery)
+                .where(SearchQuery.session_id == session.id, SearchQuery.status == "processing")
+                .values(status="pending")
+            )
+            session.status = "failed"
+            session.error_message = error[:1000]
+        else:
+            session.status = "completed"
+            session.error_message = None
+        session.completed_at = now
+        session.updated_at = now
+        await self.db.commit()
+
+    async def progress(self, session: SearchSession) -> dict:
+        """
+        How far a session's search has come, counted from its keywords.
+
+        Args:
+            session: Session to report on
+
+        Returns:
+            dict: status, error_message, total, pending, processing, completed,
+                failed, results (stored so far), started_at, updated_at and
+                stale (it says "processing" but its worker stopped reporting)
+        """
+        rows = await self.db.execute(
+            select(
+                SearchQuery.status,
+                func.count(SearchQuery.id),
+                func.coalesce(func.sum(SearchQuery.result_count), 0)
+            )
+            .where(SearchQuery.session_id == session.id)
+            .group_by(SearchQuery.status)
+        )
+        counts = {"pending": 0, "processing": 0, "completed": 0, "failed": 0}
+        results = 0
+        for status, count, stored in rows.all():
+            counts[status] = counts.get(status, 0) + count
+            results += int(stored or 0)
+
+        return {
+            "status": session.status,
+            "error_message": session.error_message,
+            "total": sum(counts.values()),
+            **counts,
+            "results": results,
+            "started_at": session.started_at,
+            "updated_at": session.updated_at,
+            "stale": self.is_stale(session),
+        }
 
     async def _execute_single_query(
         self,
@@ -195,7 +438,8 @@ class SearchService:
         language: str,
         country: str,
         allowed_domains: Optional[list[str]],
-        seen_urls: set[str]
+        seen_urls: set[str],
+        fetched: Optional[Union[list[EngineSearchResult], Exception]] = None
     ) -> None:
         """
         Search for an existing query row and store its results.
@@ -211,17 +455,25 @@ class SearchService:
             country: Country code (gl parameter)
             allowed_domains: Optional domain filter
             seen_urls: URL hashes already stored for the session; updated
+            fetched: Outcome of a search already made for this query by
+                _search_batch: its results, or the exception it raised. None
+                searches here.
         """
         query_text = query.query_text
 
         try:
-            # Execute search with language and country parameters
-            results = await engine.search(
-                query=query_text,
-                max_results=query.max_results,
-                hl=language,
-                gl=country
-            )
+            if fetched is None:
+                # Execute search with language and country parameters
+                results = await engine.search(
+                    query=query_text,
+                    max_results=query.max_results,
+                    hl=language,
+                    gl=country
+                )
+            elif isinstance(fetched, Exception):
+                raise fetched
+            else:
+                results = fetched
 
             # Filter by allowed domains if specified
             if allowed_domains:
@@ -250,6 +502,77 @@ class SearchService:
             query.executed_at = datetime.utcnow()
 
         await self.db.commit()
+
+    def _keyword_slot(self):
+        """
+        A place among the keywords being searched by all workers at once (a
+        no-op without shared limits).
+        """
+        if self.limits is None:
+            return contextlib.nullcontext()
+        return self.limits.slot(
+            "keywords", settings.search_global_concurrency, lease=KEYWORD_SLOT_LEASE
+        )
+
+    async def _search_and_store(
+        self,
+        jobs: list[tuple[SearchQuery, SearchEngineBase]],
+        language: str,
+        country: str,
+        seen_urls: set[str]
+    ) -> None:
+        """
+        Search many queries in parallel and store their results in query order.
+
+        Up to settings.search_concurrency searches run at the same time, in a
+        sliding window: when one finishes the next starts, so a slow keyword
+        does not hold back the ones behind it. Results are stored one query at
+        a time in the order of jobs, as soon as that query's search is done,
+        and committed each time, so deduplication and progress behave as if
+        the queries ran one after another. A search that fails is recorded on
+        its query like any other failure.
+
+        Args:
+            jobs: (query row, engine) pairs, in the order to store them
+            language: Language code (hl parameter)
+            country: Country code (gl parameter)
+            seen_urls: URL hashes already stored for the session; updated
+        """
+        # Read the rows here, before the searches are awaited
+        calls = [
+            (engine, query.query_text, query.max_results) for query, engine in jobs
+        ]
+        window = asyncio.Semaphore(settings.search_concurrency)
+
+        async def search(
+            engine: SearchEngineBase, text: str, max_results: int
+        ) -> Union[list[EngineSearchResult], Exception]:
+            async with window, self._keyword_slot():
+                try:
+                    return await engine.search(
+                        query=text, max_results=max_results, hl=language, gl=country
+                    )
+                except Exception as e:  # recorded on the query by _run_query
+                    return e
+
+        tasks = [asyncio.create_task(search(*call)) for call in calls]
+        try:
+            for (query, engine), task in zip(jobs, tasks):
+                await self._run_query(
+                    query=query,
+                    engine=engine,
+                    language=language,
+                    country=country,
+                    allowed_domains=query.allowed_domains,
+                    seen_urls=seen_urls,
+                    fetched=await task
+                )
+        finally:
+            # If storing stops early (an error, a cancelled request), stop the
+            # searches still running instead of leaving them behind
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def add_queries(
         self,
@@ -383,6 +706,7 @@ class SearchService:
 
         if pending:
             seen_urls = await self._load_seen_urls(session.id)
+            jobs = []
             for query in pending:
                 try:
                     engine = engines.get(query.search_engine) or (
@@ -394,15 +718,14 @@ class SearchService:
                     query.executed_at = datetime.utcnow()
                     await self.db.commit()
                     continue
+                jobs.append((query, engine))
 
-                await self._run_query(
-                    query=query,
-                    engine=engine,
-                    language=language,
-                    country=country,
-                    allowed_domains=query.allowed_domains,
-                    seen_urls=seen_urls
-                )
+            await self._search_and_store(
+                jobs,
+                language=language,
+                country=country,
+                seen_urls=seen_urls
+            )
 
             session.updated_at = datetime.utcnow()
             await self.db.commit()
@@ -459,8 +782,16 @@ class SearchService:
             int: Number of unique results stored
         """
         stored_count = 0
+        redirects = 0
 
         for result in results:
+            # A Google redirect (google.com/goto) is not the page: engines
+            # resolve these, and one that gets here unresolved must not be
+            # stored, deduplicated or scraped as if it were a website
+            if is_google_redirect(result.url):
+                redirects += 1
+                continue
+
             # Normalize URL for comparison
             normalized_url = self._normalize_url(result.url)
             url_hash = self._hash_url(normalized_url)
@@ -485,6 +816,11 @@ class SearchService:
             # Mark URL as seen
             seen_urls.add(url_hash)
             stored_count += 1
+
+        if redirects:
+            logger.warning(
+                f"Query {query.id}: skipped {redirects} unresolved Google redirect link(s)"
+            )
 
         await self.db.flush()
         return stored_count
@@ -518,7 +854,11 @@ class SearchService:
                 raise ValueError("Serper API key not configured")
 
             return SerperSearch(
-                api_key=settings.serper_api_key
+                api_key=settings.serper_api_key,
+                resolve_concurrency=settings.serper_resolve_concurrency,
+                base_url=settings.serper_base_url,
+                limits=self.limits,
+                rate_per_second=settings.serper_rate_limit_per_second
             )
 
         else:
